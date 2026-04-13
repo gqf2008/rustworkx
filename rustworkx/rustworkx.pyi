@@ -231,6 +231,21 @@ def digraph_two_color(graph: PyDiGraph) -> dict[int, int]: ...
 def graph_misra_gries_edge_color(graph: PyGraph, /) -> dict[int, int]: ...
 def graph_bipartite_edge_color(graph: PyGraph, /) -> dict[int, int]: ...
 
+# Community Detection
+
+def graph_label_propagation(
+    graph: PyGraph,
+    /,
+    max_iterations: int = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+def digraph_label_propagation(
+    graph: PyDiGraph,
+    /,
+    max_iterations: int = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+
 # Connectivity
 
 def connected_components(graph: PyGraph, /) -> list[set[int]]: ...
