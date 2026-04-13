@@ -17,6 +17,7 @@ use petgraph::stable_graph::{NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, NodeIndexable};
 
 use rustworkx_core::community::label_propagation as core_label_propagation;
+use rustworkx_core::community::leiden_communities as core_leiden;
 use rustworkx_core::community::louvain_communities as core_louvain;
 
 use crate::{digraph, graph};
@@ -336,4 +337,160 @@ where
     }
 
     Ok(out)
+}
+
+/// Leiden community detection algorithm.
+///
+/// This is a hierarchical, modularity-based community detection algorithm
+/// that improves upon Louvain by guaranteeing well-connected communities.
+/// It works in three phases per iteration:
+/// 1. **Local moving**: Each node is moved to the community of a neighbor if it
+///    improves the modularity. This is repeated until no improvement is possible.
+/// 2. **Refinement**: Each community is split into well-connected sub-communities,
+///    ensuring the final communities are connected.
+/// 3. **Aggregation**: The refined communities form a new aggregated graph, and
+///    the process repeats.
+///
+/// The algorithm terminates when no further modularity improvement is possible.
+///
+/// The algorithm is described in:
+/// Traag, V. A., Waltman, L., & van Eck, N. J. (2019). From Louvain to Leiden:
+/// guaranteeing well-connected communities. Scientific Reports, 9(1), 5233.
+///
+/// :param graph: The input graph (PyGraph) to analyze. Edge weights must be
+///     floating point numbers.
+/// :param weight_fn: Optional callable to extract edge weights. Takes an edge
+///     data object and returns a float. If not provided, uses default_weight.
+/// :param default_weight: Default edge weight used when weight_fn is not
+///     provided. Default: 1.0.
+/// :param max_iterations: Maximum number of iterations to perform.
+///     Default: 100.
+/// :param resolution: Resolution parameter (gamma). Values > 1 produce more
+///     communities, values < 1 produce fewer. Default: 1.0.
+/// :param seed: Optional random seed for reproducibility. When not provided,
+///     results may vary between runs.
+///
+/// :returns: A dictionary mapping node indices to community labels (integers).
+///     Nodes in the same community share the same label.
+/// :rtype: dict
+///
+/// .. jupyter-execute::
+///
+///     import rustworkx as rx
+///
+///     # Create a graph with two clear communities
+///     graph = rx.PyGraph()
+///     # Community 1: fully connected triangle
+///     a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+///     graph.add_edge(a, b, 1.0)
+///     graph.add_edge(b, c, 1.0)
+///     graph.add_edge(a, c, 1.0)
+///     # Community 2: fully connected triangle
+///     d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+///     graph.add_edge(d, e, 1.0)
+///     graph.add_edge(e, f, 1.0)
+///     graph.add_edge(d, f, 1.0)
+///     # Bridge between communities
+///     graph.add_edge(c, d, 1.0)
+///
+///     communities = rx.leiden_communities(graph)
+///     print(communities)
+///
+#[pyfunction]
+#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_iterations=100, resolution=None, seed=None))]
+pub fn graph_leiden_communities(
+    py: Python,
+    graph: &graph::PyGraph,
+    weight_fn: Option<Py<PyAny>>,
+    default_weight: f64,
+    max_iterations: usize,
+    resolution: Option<f64>,
+    seed: Option<u64>,
+) -> PyResult<Py<PyAny>> {
+    let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
+    let result = core_leiden(&weighted_graph, Some(max_iterations), resolution, seed);
+
+    let out_dict = PyDict::new(py);
+    for (node, label) in result {
+        out_dict.set_item(graph.graph.to_index(node), label)?;
+    }
+    Ok(out_dict.into())
+}
+
+/// Leiden community detection algorithm for directed graphs.
+///
+/// This is a hierarchical, modularity-based community detection algorithm
+/// that improves upon Louvain by guaranteeing well-connected communities.
+/// It works in three phases per iteration:
+/// 1. **Local moving**: Each node is moved to the community of a neighbor if it
+///    improves the modularity. This is repeated until no improvement is possible.
+/// 2. **Refinement**: Each community is split into well-connected sub-communities,
+///    ensuring the final communities are connected.
+/// 3. **Aggregation**: The refined communities form a new aggregated graph, and
+///    the process repeats.
+///
+/// The algorithm terminates when no further modularity improvement is possible.
+///
+/// The algorithm is described in:
+/// Traag, V. A., Waltman, L., & van Eck, N. J. (2019). From Louvain to Leiden:
+/// guaranteeing well-connected communities. Scientific Reports, 9(1), 5233.
+///
+/// :param graph: The input graph (PyDiGraph) to analyze. Edge weights must be
+///     floating point numbers.
+/// :param weight_fn: Optional callable to extract edge weights. Takes an edge
+///     data object and returns a float. If not provided, uses default_weight.
+/// :param default_weight: Default edge weight used when weight_fn is not
+///     provided. Default: 1.0.
+/// :param max_iterations: Maximum number of iterations to perform.
+///     Default: 100.
+/// :param resolution: Resolution parameter (gamma). Values > 1 produce more
+///     communities, values < 1 produce fewer. Default: 1.0.
+/// :param seed: Optional random seed for reproducibility. When not provided,
+///     results may vary between runs.
+///
+/// :returns: A dictionary mapping node indices to community labels (integers).
+///     Nodes in the same community share the same label.
+/// :rtype: dict
+///
+/// .. jupyter-execute::
+///
+///     import rustworkx as rx
+///
+///     # Create a directed graph with two clear communities
+///     graph = rx.PyDiGraph()
+///     # Community 1
+///     a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+///     graph.add_edge(a, b, 1.0)
+///     graph.add_edge(b, c, 1.0)
+///     graph.add_edge(c, a, 1.0)
+///     # Community 2
+///     d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+///     graph.add_edge(d, e, 1.0)
+///     graph.add_edge(e, f, 1.0)
+///     graph.add_edge(f, d, 1.0)
+///     # Bridge between communities
+///     graph.add_edge(c, d, 1.0)
+///
+///     communities = rx.digraph_leiden_communities(graph)
+///     print(communities)
+///
+#[pyfunction]
+#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_iterations=100, resolution=None, seed=None))]
+pub fn digraph_leiden_communities(
+    py: Python,
+    graph: &digraph::PyDiGraph,
+    weight_fn: Option<Py<PyAny>>,
+    default_weight: f64,
+    max_iterations: usize,
+    resolution: Option<f64>,
+    seed: Option<u64>,
+) -> PyResult<Py<PyAny>> {
+    let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
+    let result = core_leiden(&weighted_graph, Some(max_iterations), resolution, seed);
+
+    let out_dict = PyDict::new(py);
+    for (node, label) in result {
+        out_dict.set_item(graph.graph.to_index(node), label)?;
+    }
+    Ok(out_dict.into())
 }

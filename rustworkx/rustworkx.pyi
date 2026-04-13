@@ -261,6 +261,24 @@ def digraph_louvain_communities(
     max_levels: int | None = ...,
     resolution: float | None = ...,
 ) -> dict[int, int]: ...
+def graph_leiden_communities(
+    graph: PyGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    max_iterations: int = ...,
+    resolution: float | None = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+def digraph_leiden_communities(
+    graph: PyDiGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    max_iterations: int = ...,
+    resolution: float | None = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
 
 # Connectivity
 

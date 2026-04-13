@@ -17,8 +17,10 @@
 //! connected internally than to the rest of the graph.
 
 mod label_propagation;
+mod leiden;
 mod louvain;
 
 pub use label_propagation::label_propagation;
+pub use leiden::leiden_communities;
 pub use louvain::louvain_communities;
 pub use louvain::modularity;

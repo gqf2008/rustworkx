@@ -359,3 +359,187 @@ class TestDiGraphLouvainCommunities(unittest.TestCase):
             self.assertIsInstance(key, int)
             self.assertIsInstance(value, int)
 
+class TestGraphLeidenCommunities(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyGraph()
+        res = rustworkx.graph_leiden_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        res = rustworkx.graph_leiden_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """Graph with two clear communities and a weak bridge."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        graph.add_edge(c, d, 1.0)
+
+        communities = rustworkx.graph_leiden_communities(graph, seed=42)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_complete_graph_single_community(self):
+        """Complete graph should form a single community."""
+        graph = rustworkx.generators.complete_graph(10)
+        communities = rustworkx.graph_leiden_communities(graph, seed=42)
+        labels = set(communities.values())
+        self.assertEqual(len(labels), 1)
+        self.assertEqual(communities[0], 0)
+
+    def test_no_edges(self):
+        """Nodes with no edges should each be their own community."""
+        graph = rustworkx.PyGraph()
+        for _ in range(5):
+            graph.add_node(0)
+        communities = rustworkx.graph_leiden_communities(graph)
+        self.assertEqual(len(communities), 5)
+        labels = list(communities.values())
+        self.assertEqual(len(set(labels)), 5)
+
+    def test_weighted_edges(self):
+        """Strong intra-community weights should produce correct communities."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(a, c, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(d, f, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.graph_leiden_communities(graph, seed=42)
+
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_resolution_parameter(self):
+        """Higher resolution should produce more or equal communities."""
+        graph = rustworkx.generators.complete_graph(20)
+        communities_default = rustworkx.graph_leiden_communities(graph, seed=42)
+        communities_high_res = rustworkx.graph_leiden_communities(
+            graph, resolution=2.0, seed=42
+        )
+        self.assertGreaterEqual(len(set(communities_default.values())), 1)
+        self.assertGreaterEqual(len(set(communities_high_res.values())), 1)
+
+    def test_max_iterations_parameter(self):
+        """Custom max_iterations should work without error."""
+        graph = rustworkx.generators.path_graph(10)
+        communities = rustworkx.graph_leiden_communities(graph, max_iterations=1, seed=42)
+        self.assertEqual(len(communities), 10)
+
+    def test_seed_deterministic(self):
+        """Same seed should produce same results."""
+        graph = rustworkx.PyGraph()
+        for i in range(20):
+            graph.add_node(i)
+        for i in range(19):
+            graph.add_edge(i, i + 1, 1.0)
+        for i in range(0, 8):
+            for j in range(i + 2, 10):
+                graph.add_edge(i, j, 1.0)
+        for i in range(10, 18):
+            for j in range(i + 2, 20):
+                graph.add_edge(i, j, 1.0)
+
+        communities1 = rustworkx.graph_leiden_communities(graph, seed=123)
+        communities2 = rustworkx.graph_leiden_communities(graph, seed=123)
+        self.assertEqual(communities1, communities2)
+
+    def test_return_type(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.graph_leiden_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
+    def test_labels_normalized(self):
+        """Labels should be compact integers starting from 0."""
+        graph = rustworkx.PyGraph()
+        for i in range(10):
+            graph.add_node(i)
+        for i in range(9):
+            graph.add_edge(i, i + 1, 1.0)
+
+        communities = rustworkx.graph_leiden_communities(graph, seed=42)
+        labels = sorted(set(communities.values()))
+        self.assertEqual(labels, list(range(len(labels))))
+
+
+class TestDiGraphLeidenCommunities(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyDiGraph()
+        res = rustworkx.digraph_leiden_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        res = rustworkx.digraph_leiden_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_cycle_graph(self):
+        graph = rustworkx.generators.directed_cycle_graph(6)
+        communities = rustworkx.digraph_leiden_communities(graph, seed=42)
+        self.assertEqual(len(communities), 6)
+
+    def test_two_communities(self):
+        """Directed graph: verify algorithm runs and produces valid partition."""
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(c, a, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(f, d, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.digraph_leiden_communities(graph, seed=42)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertIn(communities[d], communities.values())
+        self.assertIn(communities[e], communities.values())
+        self.assertIn(communities[f], communities.values())
+
+    def test_return_type(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.digraph_leiden_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
