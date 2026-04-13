@@ -607,6 +607,8 @@ fn rustworkx(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(digraph_is_bipartite))?;
     m.add_wrapped(wrap_pyfunction!(graph_label_propagation))?;
     m.add_wrapped(wrap_pyfunction!(digraph_label_propagation))?;
+    m.add_wrapped(wrap_pyfunction!(graph_louvain_communities))?;
+    m.add_wrapped(wrap_pyfunction!(digraph_louvain_communities))?;
     m.add_wrapped(wrap_pyfunction!(graph_line_graph))?;
     m.add_wrapped(wrap_pyfunction!(graph_tensor_product))?;
     m.add_wrapped(wrap_pyfunction!(digraph_tensor_product))?;
