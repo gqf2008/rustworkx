@@ -19,9 +19,29 @@
 //! Pons, P., & Latapy, M. (2005). Computing communities in large networks
 //! using random walks. Journal of Graph Algorithms and Applications, 10(2), 191-218.
 
+use std::collections::BinaryHeap;
+
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 
 use crate::dictmap::{DictMap, InitWithHasher};
+
+/// Wrapper for f64 that implements Ord for use in BinaryHeap (min-heap via Reverse).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct F64Ord(f64);
+
+impl Eq for F64Ord {}
+
+impl PartialOrd for F64Ord {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for F64Ord {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
 
 /// Walktrap community detection algorithm.
 ///
@@ -227,8 +247,11 @@ where
     result
 }
 
-/// Perform Ward's hierarchical clustering and return all intermediate partitions
-/// along with the merge distances.
+/// Perform Ward's hierarchical clustering using a priority queue and return
+/// all intermediate partitions along with the merge distances.
+///
+/// Uses a min-heap for O(n² log n) clustering instead of O(n³) linear scan.
+/// Stale heap entries (from merged communities) are lazily skipped.
 fn walktrap_cluster(
     n: usize,
     initial_dist: &[f64],
@@ -256,6 +279,16 @@ fn walktrap_cluster(
     // Distance matrix stored in flattened upper triangle
     let mut dist: Vec<f64> = initial_dist.to_vec();
 
+    // Priority queue (min-heap via Reverse) storing (distance, ci, cj)
+    let mut pq: BinaryHeap<(std::cmp::Reverse<F64Ord>, usize, usize)> =
+        BinaryHeap::with_capacity(n * (n - 1) / 2);
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let d = dist[idx(i, j, n)];
+            pq.push((std::cmp::Reverse(F64Ord(d)), i, j));
+        }
+    }
+
     // Collect all partitions and merge distances
     let mut partitions: Vec<Vec<u32>> = Vec::new();
     let mut merge_dists: Vec<f64> = Vec::new();
@@ -265,26 +298,15 @@ fn walktrap_cluster(
 
     // Merge until one community remains
     while num_communities > 1 {
-        // Find minimum distance pair among active communities
-        let mut best_dist = f64::MAX;
-        let mut best_pair = (0, 1);
-
-        let active_comms: Vec<usize> = (0..n).filter(|&i| active[i]).collect();
-
-        for &ci in &active_comms {
-            for &cj in &active_comms {
-                if ci >= cj { continue; }
-                let d = get_dist(&dist, ci, cj, n);
-                if d < best_dist {
-                    best_dist = d;
-                    best_pair = (ci, cj);
-                }
+        // Pop minimum distance pair, skipping stale entries
+        let (best_dist, ci, cj) = loop {
+            let (std::cmp::Reverse(F64Ord(d)), a, b) = pq.pop().unwrap();
+            if !active[a] || !active[b] {
+                continue; // stale entry — one community already merged
             }
-        }
+            break (d, a, b);
+        };
 
-        let (ci, cj) = best_pair;
-
-        // Record the merge distance
         merge_dists.push(best_dist);
 
         // Merge cj into ci using Walktrap's Ward-like criterion
@@ -297,15 +319,37 @@ fn walktrap_cluster(
         comm_nodes[ci].extend(cj_nodes);
         comm_degree[ci] = d_merged;
 
-        // Update distances from merged community to all others
-        let d_ij = get_dist(&dist, ci, cj, n);
-        for &k in &active_comms {
-            if k == ci || k == cj { continue; }
-            let d_ki = get_dist(&dist, ci.min(k), ci.max(k), n);
-            let d_kj = get_dist(&dist, cj.min(k), cj.max(k), n);
+        // Update distances and push new entries for all active k
+        let d_ij = dist[idx(ci, cj, n)];
+        for k in (ci + 1)..n {
+            if !active[k] {
+                continue;
+            }
+            let d_ki = dist[idx(ci, k, n)];
+            let d_kj = if k > cj {
+                dist[idx(cj, k, n)]
+            } else {
+                // k > ci but k < cj, so pair is (k, cj)
+                dist[idx(k, cj, n)]
+            };
             let new_d = (d_i * d_ki + d_j * d_kj) / d_merged
                 - d_i * d_j * d_ij / (d_merged * d_merged);
-            set_dist(&mut dist, ci.min(k), ci.max(k), n, new_d.max(0.0));
+            let new_d = new_d.max(0.0);
+            dist[idx(ci, k, n)] = new_d;
+            pq.push((std::cmp::Reverse(F64Ord(new_d)), ci, k));
+        }
+        // For k < ci, also update (k, ci)
+        for k in 0..ci {
+            if !active[k] {
+                continue;
+            }
+            let d_ki = dist[idx(k, ci, n)];
+            let d_kj = dist[idx(k, cj, n)];
+            let new_d = (d_i * d_ki + d_j * d_kj) / d_merged
+                - d_i * d_j * d_ij / (d_merged * d_merged);
+            let new_d = new_d.max(0.0);
+            dist[idx(k, ci, n)] = new_d;
+            pq.push((std::cmp::Reverse(F64Ord(new_d)), k, ci));
         }
 
         active[cj] = false;
@@ -323,18 +367,6 @@ fn idx(i: usize, j: usize, n: usize) -> usize {
     // Row i starts at position i*n - i*(i+1)/2
     // Within row i, column j is at offset (j - i - 1)
     i * n - i * (i + 1) / 2 + j - i - 1
-}
-
-fn get_dist(dist: &[f64], i: usize, j: usize, n: usize) -> f64 {
-    if i == j { return 0.0; }
-    let (a, b) = if i < j { (i, j) } else { (j, i) };
-    dist[idx(a, b, n)]
-}
-
-fn set_dist(dist: &mut [f64], i: usize, j: usize, n: usize, val: f64) {
-    if i < j {
-        dist[idx(i, j, n)] = val;
-    }
 }
 
 fn assign_labels(comm_nodes: &[Vec<usize>], active: &[bool], n: usize) -> Vec<u32> {
