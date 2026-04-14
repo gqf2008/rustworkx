@@ -129,106 +129,106 @@ where
     }
 
     // Initialize: each node in its own community
-        let mut node_to_community: Vec<u32> = (0..n).map(|i| i as u32).collect();
+    let mut node_to_community: Vec<u32> = (0..n).map(|i| i as u32).collect();
 
-        // Reusable mutual flow buffer — avoids O(n) allocation per node per iteration
-        let mut mutual_flow: HashMap<usize, f64> = HashMap::new();
+    // Reusable mutual flow buffer — avoids O(n) allocation per node per iteration
+    let mut mutual_flow: HashMap<usize, f64> = HashMap::new();
 
-        // Shuffle order
-        let mut order: Vec<usize> = (0..n).collect();
+    // Shuffle order
+    let mut order: Vec<usize> = (0..n).collect();
 
-        for _iteration in 0..max_iterations {
-            // Shuffle using LCG
-            for i in (1..n).rev() {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                let j = (seed as usize) % (i + 1);
-                order.swap(i, j);
+    for _iteration in 0..max_iterations {
+        // Shuffle using LCG
+        for i in (1..n).rev() {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let j = (seed as usize) % (i + 1);
+            order.swap(i, j);
+        }
+
+        let mut improved = false;
+        let teleport_per_node = teleport / n as f64;
+
+        for &i in &order {
+            if out_weight[i] == 0.0 {
+                continue;
             }
 
-            let mut improved = false;
-            let teleport_per_node = teleport / n as f64;
+            let ci = node_to_community[i] as usize;
 
-            for &i in &order {
-                if out_weight[i] == 0.0 {
+            // Compute mutual flow between node i and each community.
+            // mutual_flow[c] = Σ_{j∈c, j≠i} (flow(i→j) + flow(j→i))
+            // flow(i→j) = visit_rate[i] * P(i→j)
+            // P(i→j) = (1-teleport) * w/out_weight[i] + teleport/n
+            //
+            // We compute this sparsely:
+            // 1. Outgoing neighbors via adj[i]  — O(deg_out(i))
+            // 2. Incoming neighbors via rev_adj[i] — O(deg_in(i))
+            // Total per-node cost: O(deg(i)) instead of O(n).
+
+            mutual_flow.clear();
+
+            // Outgoing flow: i -> j (sparse via adjacency list)
+            for &(j, w) in &adj[i] {
+                if j == i {
                     continue;
                 }
+                let cj = node_to_community[j] as usize;
+                let p_ij = (1.0 - teleport) * w / out_weight[i] + teleport_per_node;
+                *mutual_flow.entry(cj).or_insert(0.0) += visit_rate[i] * p_ij;
+            }
 
-                let ci = node_to_community[i] as usize;
-
-                // Compute mutual flow between node i and each community.
-                // mutual_flow[c] = Σ_{j∈c, j≠i} (flow(i→j) + flow(j→i))
-                // flow(i→j) = visit_rate[i] * P(i→j)
-                // P(i→j) = (1-teleport) * w/out_weight[i] + teleport/n
-                //
-                // We compute this sparsely:
-                // 1. Outgoing neighbors via adj[i]  — O(deg_out(i))
-                // 2. Incoming neighbors via rev_adj[i] — O(deg_in(i))
-                // Total per-node cost: O(deg(i)) instead of O(n).
-
-                mutual_flow.clear();
-
-                // Outgoing flow: i -> j (sparse via adjacency list)
-                for &(j, w) in &adj[i] {
-                    if j == i {
-                        continue;
-                    }
-                    let cj = node_to_community[j] as usize;
-                    let p_ij = (1.0 - teleport) * w / out_weight[i] + teleport_per_node;
-                    *mutual_flow.entry(cj).or_insert(0.0) += visit_rate[i] * p_ij;
+            // Incoming flow: j -> i (sparse via reverse adjacency list)
+            for &(j, w) in &rev_adj[i] {
+                if j == i {
+                    continue;
                 }
+                let cj = node_to_community[j] as usize;
+                let p_ji = (1.0 - teleport) * w / out_weight[j] + teleport_per_node;
+                *mutual_flow.entry(cj).or_insert(0.0) += visit_rate[j] * p_ji;
+            }
 
-                // Incoming flow: j -> i (sparse via reverse adjacency list)
-                for &(j, w) in &rev_adj[i] {
-                    if j == i {
-                        continue;
-                    }
-                    let cj = node_to_community[j] as usize;
-                    let p_ji = (1.0 - teleport) * w / out_weight[j] + teleport_per_node;
-                    *mutual_flow.entry(cj).or_insert(0.0) += visit_rate[j] * p_ji;
+            // Find best community (highest mutual flow)
+            let mut best_comm = ci;
+            let mut best_flow_val = *mutual_flow.get(&ci).unwrap_or(&0.0);
+
+            for (&cj, &mf) in &mutual_flow {
+                if cj == ci {
+                    continue;
                 }
-
-                // Find best community (highest mutual flow)
-                let mut best_comm = ci;
-                let mut best_flow_val = *mutual_flow.get(&ci).unwrap_or(&0.0);
-
-                for (&cj, &mf) in &mutual_flow {
-                    if cj == ci {
-                        continue;
-                    }
-                    if mf > best_flow_val {
-                        best_flow_val = mf;
-                        best_comm = cj;
-                    }
-                }
-
-                // Move if improvement
-                if best_comm != ci {
-                    node_to_community[i] = best_comm as u32;
-                    improved = true;
+                if mf > best_flow_val {
+                    best_flow_val = mf;
+                    best_comm = cj;
                 }
             }
 
-            if !improved {
-                break;
+            // Move if improvement
+            if best_comm != ci {
+                node_to_community[i] = best_comm as u32;
+                improved = true;
             }
         }
 
-        // Normalize labels
-        let mut label_map: HashMap<u32, u32> = HashMap::new();
-        let mut next_label: u32 = 0;
-
-        let mut result = DictMap::with_capacity(n);
-        for (i, &node) in nodes.iter().enumerate() {
-            let raw_label = node_to_community[i];
-            let compact_label = label_map.entry(raw_label).or_insert_with(|| {
-                let label = next_label;
-                next_label += 1;
-                label
-            });
-            result.insert(node, *compact_label);
+        if !improved {
+            break;
         }
-        result
     }
+
+    // Normalize labels
+    let mut label_map: HashMap<u32, u32> = HashMap::new();
+    let mut next_label: u32 = 0;
+
+    let mut result = DictMap::with_capacity(n);
+    for (i, &node) in nodes.iter().enumerate() {
+        let raw_label = node_to_community[i];
+        let compact_label = label_map.entry(raw_label).or_insert_with(|| {
+            let label = next_label;
+            next_label += 1;
+            label
+        });
+        result.insert(node, *compact_label);
+    }
+    result
+}
 
 /// Compute stationary distribution
 /// Uses double-buffered approach (swap instead of clone).
