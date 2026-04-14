@@ -158,9 +158,9 @@ where
     // a[i] = degree of community i / (2m)
     let mut a: Vec<f64> = degree.iter().map(|&d| d / two_m).collect();
 
-    // e[(i,j)] = 2 * sum of edge weights between communities i and j / (2m)
-    // Only store pairs where i < j to avoid duplication
-    let mut e: HashMap<(u32, u32), f64> = HashMap::new();
+    // e[i][j] = sum of edge weights between communities i and j / (2m)
+    // Stored as Vec of HashMaps for O(deg) neighbor lookup
+    let mut e: Vec<HashMap<u32, f64>> = (0..n).map(|_| HashMap::new()).collect();
 
     // Build initial e matrix
     for i in 0..n {
@@ -168,8 +168,8 @@ where
             let ci = node_to_community[i];
             let cj = node_to_community[j];
             if ci != cj {
-                let key = if ci < cj { (ci, cj) } else { (cj, ci) };
-                *e.entry(key).or_insert(0.0) += w / two_m;
+                *e[ci as usize].entry(cj).or_insert(0.0) += w / two_m;
+                *e[cj as usize].entry(ci).or_insert(0.0) += w / two_m;
             }
         }
     }
@@ -178,9 +178,13 @@ where
     // delta_Q = 2 * (e[i][j] - resolution * a[i] * a[j])
     let mut queue: PriorityQueue<(u32, u32), F64Ord> = PriorityQueue::new();
 
-    for (&(ci, cj), &eij) in &e {
-        let dq = 2.0 * (eij - resolution * a[ci as usize] * a[cj as usize]);
-        queue.push((ci, cj), F64Ord(dq));
+    for ci in 0..n {
+        for (&cj, &eij) in &e[ci] {
+            if (ci as u32) < cj {
+                let dq = 2.0 * (eij - resolution * a[ci] * a[cj as usize]);
+                queue.push((ci as u32, cj), F64Ord(dq));
+            }
+        }
     }
 
     // Track which communities still exist (haven't been merged into another)
@@ -217,26 +221,17 @@ where
             comm_nodes.entry(ci).or_default().extend(nodes_in_cj);
         }
 
-        // Update e values and queue
-        // Collect all communities connected to ci or cj using a HashSet for O(1) lookups
+        // Update e values and queue — only iterate neighbors, not all entries
+        // Collect neighbors of ci and cj via direct HashMap lookups: O(deg(ci) + deg(cj))
         let mut neighbors_to_update: HashSet<u32> = HashSet::new();
-
-        // Find neighbors of ci
-        let ci_e_keys: Vec<(u32, u32)> = e.keys().copied().collect();
-        for &(k1, k2) in &ci_e_keys {
-            if k1 == ci && active[k2 as usize] {
-                neighbors_to_update.insert(k2);
-            } else if k2 == ci && active[k1 as usize] {
-                neighbors_to_update.insert(k1);
+        for (&ck, _) in &e[ci as usize] {
+            if active[ck as usize] && ck != cj {
+                neighbors_to_update.insert(ck);
             }
         }
-        // Find neighbors of cj
-        let cj_e_keys: Vec<(u32, u32)> = e.keys().copied().collect();
-        for &(k1, k2) in &cj_e_keys {
-            if k1 == cj && active[k2 as usize] {
-                neighbors_to_update.insert(k2);
-            } else if k2 == cj && active[k1 as usize] {
-                neighbors_to_update.insert(k1);
+        for (&ck, _) in &e[cj as usize] {
+            if active[ck as usize] && ck != ci {
+                neighbors_to_update.insert(ck);
             }
         }
 
@@ -245,21 +240,55 @@ where
                 continue;
             }
 
-            let eik = *e.get(&edge_key(ci, ck)).unwrap_or(&0.0);
-            let ejk = *e.get(&edge_key(cj, ck)).unwrap_or(&0.0);
-
-            // Remove old entries
-            e.remove(&edge_key(ci, ck));
-            e.remove(&edge_key(cj, ck));
+            let eik = *e[ci as usize].get(&ck).unwrap_or(&0.0);
+            let ejk = *e[cj as usize].get(&ck).unwrap_or(&0.0);
 
             // New combined edge weight
             let e_new = eik + ejk;
             if e_new > 0.0 {
-                e.insert(edge_key(ci, ck), e_new);
+                // Remove old entries from both sides
+                e[ck as usize].remove(&ci);
+                e[ck as usize].remove(&cj);
+                e[ci as usize].remove(&ck);
+                e[cj as usize].remove(&ck);
+                // Insert new entries
+                e[ci as usize].insert(ck, e_new);
+                e[ck as usize].insert(ci, e_new);
                 let dq_new = 2.0 * (e_new - resolution * a[ci as usize] * a[ck as usize]);
                 queue.push((ci, ck), F64Ord(dq_new));
+            } else {
+                // No edge weight - just remove entries
+                e[ck as usize].remove(&ci);
+                e[ck as usize].remove(&cj);
+                e[ci as usize].remove(&ck);
+                e[cj as usize].remove(&ck);
             }
         }
+
+        // Merge cj's remaining neighbors into ci (skip ci and inactive)
+        let remaining: Vec<(u32, f64)> = e[cj as usize]
+            .iter()
+            .filter_map(|(&ck, &v)| {
+                if ck != ci && active[ck as usize] {
+                    Some((ck, v))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for &(ck, e_ck) in &remaining {
+            let e_ci_ck = e[ci as usize].entry(ck).or_insert(0.0);
+            *e_ci_ck += e_ck;
+            let e_combined = *e_ci_ck;
+            // Update reverse mapping
+            e[ck as usize].remove(&cj);
+            e[ck as usize].insert(ci, e_combined);
+            let dq_new = 2.0 * (e_combined - resolution * a[ci as usize] * a[ck as usize]);
+            queue.push((ci, ck), F64Ord(dq_new));
+        }
+
+        // Clear merged community's entries
+        e[cj as usize].clear();
     }
 
     // Normalize labels to compact integers starting from 0
@@ -277,10 +306,6 @@ where
         result.insert(node, *compact_label);
     }
     result
-}
-
-fn edge_key(a: u32, b: u32) -> (u32, u32) {
-    if a < b { (a, b) } else { (b, a) }
 }
 
 #[cfg(test)]
