@@ -330,6 +330,9 @@ fn refine_communities(
 
     let mut next_refined_id = n as u32;
 
+    // Reusable buffer for sub-community assignments — avoids O(n) allocation per component
+    let mut sub_comm: Vec<u32> = vec![0; n];
+
     for (_comm, nodes) in &community_nodes {
         if nodes.is_empty() {
             continue;
@@ -380,17 +383,16 @@ fn refine_communities(
             let comp_set: HashSet<usize> = component.iter().copied().collect();
 
             // Start: each node in its own sub-community
-            let mut sub_comm: HashMap<usize, u32> = HashMap::new();
+            // Reuse sub_comm buffer — only reset entries for nodes in this component afterward
             for (idx, &node) in component.iter().enumerate() {
-                let sc = idx as u32;
-                sub_comm.insert(node, sc);
+                sub_comm[node] = idx as u32;
             }
 
             let mut sub_k_tot: HashMap<u32, f64> = HashMap::new();
             let mut sub_k_in: HashMap<u32, f64> = HashMap::new();
 
             for &node in &component {
-                let sc = sub_comm[&node];
+                let sc = sub_comm[node];
 
                 // Compute degree restricted to this component
                 let ki: f64 = adj[node]
@@ -403,7 +405,7 @@ fn refine_communities(
                 // Compute intra-sub-community edge weight
                 let ki_in: f64 = adj[node]
                     .iter()
-                    .filter(|&&(j, _)| j != node && comp_set.contains(&j) && sub_comm[&j] == sc)
+                    .filter(|&&(j, _)| j != node && comp_set.contains(&j) && sub_comm[j] == sc)
                     .map(|&(_, w)| w)
                     .sum();
                 *sub_k_in.entry(sc).or_insert(0.0) += ki_in;
@@ -416,7 +418,7 @@ fn refine_communities(
                 let mut improved = false;
 
                 for &i in &order {
-                    let sci = sub_comm[&i];
+                    let sci = sub_comm[i];
 
                     // Compute degree restricted to this component
                     let ki: f64 = adj[i]
@@ -441,7 +443,7 @@ fn refine_communities(
                         if j == i || !comp_set.contains(&j) {
                             continue;
                         }
-                        *neighbor_sub.entry(sub_comm[&j]).or_insert(0.0) += w;
+                        *neighbor_sub.entry(sub_comm[j]).or_insert(0.0) += w;
                     }
 
                     let mut best_sc = sci;
@@ -456,7 +458,7 @@ fn refine_communities(
                         }
                     }
 
-                    sub_comm.insert(i, best_sc);
+                    sub_comm[i] = best_sc;
                     let new_ki_in =
                         edge_weight_to_community_with_set(i, best_sc, adj, &sub_comm, &comp_set);
                     let new_ki_self = self_loop_weight(i, adj);
@@ -476,13 +478,18 @@ fn refine_communities(
             // Map sub-communities to refined IDs
             let mut sub_to_refined: HashMap<u32, u32> = HashMap::new();
             for &node in &component {
-                let sc = sub_comm[&node];
+                let sc = sub_comm[node];
                 let rid = sub_to_refined.entry(sc).or_insert_with(|| {
                     let id = next_refined_id;
                     next_refined_id += 1;
                     id
                 });
                 refined[node] = *rid;
+            }
+
+            // Reset sub_comm entries for reuse by next component
+            for &node in &component {
+                sub_comm[node] = 0;
             }
         }
     }
@@ -530,17 +537,17 @@ fn edge_weight_to_community(
 }
 
 /// Sum of edge weights from node to nodes in a sub-community,
-/// using a HashMap lookup and a component membership set.
+/// using a Vec lookup and a component membership set.
 fn edge_weight_to_community_with_set(
     node: usize,
     comm: u32,
     adj: &[Vec<(usize, f64)>],
-    sub_comm: &HashMap<usize, u32>,
+    sub_comm: &[u32],
     comp_set: &HashSet<usize>,
 ) -> f64 {
     let mut sum = 0.0;
     for &(j, w) in &adj[node] {
-        if j != node && comp_set.contains(&j) && sub_comm.get(&j) == Some(&comm) {
+        if j != node && comp_set.contains(&j) && sub_comm[j] == comm {
             sum += w;
         }
     }
@@ -725,5 +732,21 @@ mod tests {
         assert_eq!(communities[&b], communities[&c]);
         assert_eq!(communities[&d], communities[&e]);
         assert_eq!(communities[&e], communities[&f]);
+    }
+
+    #[test]
+    fn test_negative_weights() {
+        let mut graph = UnGraph::<i32, f64>::new_undirected();
+        let a = graph.add_node(0);
+        let b = graph.add_node(1);
+        let c = graph.add_node(2);
+        let d = graph.add_node(3);
+        graph.add_edge(a, b, 1.0);
+        graph.add_edge(b, c, 1.0);
+        graph.add_edge(c, d, -0.5); // negative edge
+
+        let communities = leiden_communities(&graph, None, None, Some(42));
+        // Should not panic; all nodes should be assigned
+        assert_eq!(communities.len(), 4);
     }
 }

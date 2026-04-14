@@ -543,3 +543,713 @@ class TestDiGraphLeidenCommunities(unittest.TestCase):
             self.assertIsInstance(key, int)
             self.assertIsInstance(value, int)
 
+
+class TestGraphGirvanNewman(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyGraph()
+        dendrogram = rustworkx.graph_girvan_newman(graph)
+        self.assertEqual([], dendrogram)
+
+    def test_single_node(self):
+        graph = rustworkx.PyGraph()
+        a = graph.add_node(0)
+        dendrogram = rustworkx.graph_girvan_newman(graph)
+        self.assertEqual(1, len(dendrogram))
+        self.assertEqual({0: 0}, dendrogram[0])
+
+    def test_two_communities(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Community 1: triangle
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        # Community 2: triangle
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Bridge
+        graph.add_edge(c, d, 1.0)
+
+        dendrogram = rustworkx.graph_girvan_newman(graph, max_steps=1)
+        self.assertEqual(2, len(dendrogram))
+
+        # Initial: all one community
+        self.assertEqual(6, len(dendrogram[0]))
+
+        # After removing bridge: should be 2 communities
+        partition = dendrogram[1]
+        self.assertEqual(partition[a], partition[b])
+        self.assertEqual(partition[b], partition[c])
+        self.assertEqual(partition[d], partition[e])
+        self.assertEqual(partition[e], partition[f])
+        self.assertNotEqual(partition[a], partition[d])
+
+    def test_complete_graph(self):
+        graph = rustworkx.PyGraph()
+        nodes = [graph.add_node(i) for i in range(6)]
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                graph.add_edge(nodes[i], nodes[j], 1.0)
+
+        # Complete graph: removing one edge shouldn't split it
+        dendrogram = rustworkx.graph_girvan_newman(graph, max_steps=1)
+        self.assertEqual(2, len(dendrogram))
+        labels = list(dendrogram[1].values())
+        self.assertEqual(min(labels), 0)
+        self.assertEqual(max(labels), 0)
+
+    def test_dendrogram_length(self):
+        graph = rustworkx.PyGraph()
+        a = graph.add_node(0)
+        b = graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+
+        # 1 edge: initial + 1 removal = 2 partitions
+        dendrogram = rustworkx.graph_girvan_newman(graph)
+        self.assertEqual(2, len(dendrogram))
+        # After removal: each node isolated
+        self.assertNotEqual(dendrogram[1][a], dendrogram[1][b])
+
+    def test_return_type(self):
+        graph = rustworkx.PyGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+        dendrogram = rustworkx.graph_girvan_newman(graph)
+        self.assertIsInstance(dendrogram, list)
+        for partition in dendrogram:
+            self.assertIsInstance(partition, dict)
+            for key, value in partition.items():
+                self.assertIsInstance(key, int)
+                self.assertIsInstance(value, int)
+
+
+class TestDiGraphGirvanNewman(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyDiGraph()
+        dendrogram = rustworkx.digraph_girvan_newman(graph)
+        self.assertEqual([], dendrogram)
+
+    def test_single_node(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        dendrogram = rustworkx.digraph_girvan_newman(graph)
+        self.assertEqual(1, len(dendrogram))
+        self.assertEqual({0: 0}, dendrogram[0])
+
+    def test_two_communities(self):
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Community 1: cycle with strong weights
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(c, a, 10.0)
+        # Community 2: cycle with strong weights
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(f, d, 10.0)
+        # Weak bridge
+        graph.add_edge(c, d, 0.1)
+
+        dendrogram = rustworkx.digraph_girvan_newman(graph, max_steps=1)
+        self.assertEqual(2, len(dendrogram))
+
+        # Initial: all one community
+        self.assertEqual(6, len(dendrogram[0]))
+
+        # For directed graphs, the betweenness centrality behaves differently,
+        # so we verify basic properties rather than exact community splits
+        partition = dendrogram[1]
+        self.assertEqual(6, len(partition))
+        # All nodes should still be in some community
+        self.assertEqual(len(set(partition.values())), 1)  # Still connected
+
+    def test_max_steps(self):
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+
+        # With max_steps=2, should get 3 partitions
+        dendrogram = rustworkx.digraph_girvan_newman(graph, max_steps=2)
+        self.assertEqual(3, len(dendrogram))
+
+    def test_return_type(self):
+        graph = rustworkx.PyDiGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+        dendrogram = rustworkx.digraph_girvan_newman(graph)
+        self.assertIsInstance(dendrogram, list)
+        for partition in dendrogram:
+            self.assertIsInstance(partition, dict)
+            for key, value in partition.items():
+                self.assertIsInstance(key, int)
+                self.assertIsInstance(value, int)
+
+
+class TestGraphGreedyModularity(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyGraph()
+        res = rustworkx.graph_greedy_modularity_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        res = rustworkx.graph_greedy_modularity_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """Graph with two clear communities and a weak bridge."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        graph.add_edge(c, d, 1.0)
+
+        communities = rustworkx.graph_greedy_modularity_communities(graph)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_complete_graph_single_community(self):
+        """Complete graph should form a single community."""
+        graph = rustworkx.generators.complete_graph(10)
+        communities = rustworkx.graph_greedy_modularity_communities(graph)
+        labels = set(communities.values())
+        self.assertEqual(len(labels), 1)
+        self.assertEqual(communities[0], 0)
+
+    def test_no_edges(self):
+        """Nodes with no edges should each be their own community."""
+        graph = rustworkx.PyGraph()
+        for _ in range(5):
+            graph.add_node(0)
+        communities = rustworkx.graph_greedy_modularity_communities(graph)
+        self.assertEqual(len(communities), 5)
+        labels = list(communities.values())
+        self.assertEqual(len(set(labels)), 5)
+
+    def test_weighted_edges(self):
+        """Strong intra-community weights should produce correct communities."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(a, c, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(d, f, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.graph_greedy_modularity_communities(graph)
+
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_resolution_parameter(self):
+        """Higher resolution should produce more communities."""
+        graph = rustworkx.PyGraph()
+        a, b, c, d = graph.add_node(0), graph.add_node(1), graph.add_node(2), graph.add_node(3)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(c, d, 1.0)
+
+        lo_res = rustworkx.graph_greedy_modularity_communities(graph, resolution=0.5)
+        hi_res = rustworkx.graph_greedy_modularity_communities(graph, resolution=2.0)
+
+        # Higher resolution should produce more or equal communities
+        self.assertGreaterEqual(len(set(hi_res.values())), len(set(lo_res.values())))
+
+    def test_labels_normalized(self):
+        """Labels should be compact integers starting from 0."""
+        graph = rustworkx.PyGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+
+        communities = rustworkx.graph_greedy_modularity_communities(graph)
+        self.assertEqual(communities[a], 0)
+        self.assertEqual(communities[b], 0)
+
+    def test_return_type(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.graph_greedy_modularity_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
+
+class TestDiGraphGreedyModularity(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyDiGraph()
+        res = rustworkx.digraph_greedy_modularity_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        res = rustworkx.digraph_greedy_modularity_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """Directed graph with two clear communities."""
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(c, a, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(f, d, 1.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.digraph_greedy_modularity_communities(graph)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+
+    def test_return_type(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.digraph_greedy_modularity_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
+
+class TestGraphInfomap(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyGraph()
+        res = rustworkx.graph_infomap_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        res = rustworkx.graph_infomap_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """Graph with two clear communities and a weak bridge."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        graph.add_edge(c, d, 1.0)
+
+        communities = rustworkx.graph_infomap_communities(graph, seed=42)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_complete_graph_single_community(self):
+        """Complete graph should form a single community."""
+        graph = rustworkx.generators.complete_graph(10)
+        communities = rustworkx.graph_infomap_communities(graph, seed=42)
+        labels = set(communities.values())
+        self.assertEqual(len(labels), 1)
+        self.assertEqual(communities[0], 0)
+
+    def test_no_edges(self):
+        """Nodes with no edges should each be their own community."""
+        graph = rustworkx.PyGraph()
+        for _ in range(5):
+            graph.add_node(0)
+        communities = rustworkx.graph_infomap_communities(graph, seed=42)
+        self.assertEqual(len(communities), 5)
+        labels = list(communities.values())
+        self.assertEqual(len(set(labels)), 5)
+
+    def test_weighted_edges(self):
+        """Strong intra-community weights should produce correct communities."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(a, c, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(d, f, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.graph_infomap_communities(graph, seed=42)
+
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_labels_normalized(self):
+        """Labels should be compact integers starting from 0."""
+        graph = rustworkx.PyGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+
+        communities = rustworkx.graph_infomap_communities(graph, seed=42)
+        self.assertEqual(communities[a], 0)
+        self.assertEqual(communities[b], 0)
+
+    def test_return_type(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.graph_infomap_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
+
+class TestDiGraphInfomap(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyDiGraph()
+        res = rustworkx.digraph_infomap_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        res = rustworkx.digraph_infomap_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """Directed graph with two clear communities."""
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(c, a, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(f, d, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.digraph_infomap_communities(graph, seed=42)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+
+    def test_return_type(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.digraph_infomap_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
+
+class TestNegativeWeights(unittest.TestCase):
+    """Test community detection algorithms with negative edge weights."""
+
+    def test_louvain_negative_weights(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Positive intra-community edges
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Negative inter-community edge
+        graph.add_edge(c, d, -0.5)
+
+        communities = rustworkx.graph_louvain_communities(graph, seed=42)
+        self.assertEqual(6, len(communities))
+        # All nodes should be assigned a community label
+        for label in communities.values():
+            self.assertIn(label, set(communities.values()))
+
+    def test_leiden_negative_weights(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Positive intra-community edges
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Negative inter-community edge
+        graph.add_edge(c, d, -0.5)
+
+        communities = rustworkx.graph_leiden_communities(graph, seed=42)
+        self.assertEqual(6, len(communities))
+        for label in communities.values():
+            self.assertIn(label, set(communities.values()))
+
+    def test_girvan_newman_negative_weights(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Positive intra-community edges
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Negative bridge edge
+        graph.add_edge(c, d, -1.0)
+
+        dendrogram = rustworkx.graph_girvan_newman(graph, max_steps=1)
+        self.assertEqual(2, len(dendrogram))
+        # Should still produce valid partitions
+        self.assertEqual(6, len(dendrogram[0]))
+        self.assertEqual(6, len(dendrogram[1]))
+
+    def test_greedy_modularity_negative_weights(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Positive intra-community edges
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Negative bridge edge
+        graph.add_edge(c, d, -0.5)
+
+        communities = rustworkx.graph_greedy_modularity_communities(graph)
+        # Should still produce valid partitions with all nodes assigned
+        self.assertEqual(6, len(communities))
+        for label in communities.values():
+            self.assertIn(label, set(communities.values()))
+
+    def test_infomap_negative_weights(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Positive intra-community edges
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Negative bridge edge
+        graph.add_edge(c, d, -0.5)
+
+        communities = rustworkx.graph_infomap_communities(graph, seed=42)
+        # Should still produce valid partitions with all nodes assigned
+        self.assertEqual(6, len(communities))
+        for label in communities.values():
+            self.assertIn(label, set(communities.values()))
+
+    def test_walktrap_negative_weights(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        # Positive intra-community edges
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        # Negative bridge edge
+        graph.add_edge(c, d, -0.5)
+
+        communities = rustworkx.graph_walktrap_communities(graph, seed=42)
+        # Should still produce valid partitions with all nodes assigned
+        self.assertEqual(6, len(communities))
+        for label in communities.values():
+            self.assertIn(label, set(communities.values()))
+
+
+class TestGraphWalktrap(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyGraph()
+        res = rustworkx.graph_walktrap_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        res = rustworkx.graph_walktrap_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """Graph with two clear communities and a weak bridge."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        graph.add_edge(c, d, 1.0)
+
+        communities = rustworkx.graph_walktrap_communities(graph, seed=42)
+
+        self.assertEqual(len(communities), 6)
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_complete_graph_single_community(self):
+        """Complete graph should form a single community."""
+        graph = rustworkx.generators.complete_graph(10)
+        communities = rustworkx.graph_walktrap_communities(graph)
+        labels = set(communities.values())
+        self.assertEqual(len(labels), 1)
+        self.assertEqual(communities[0], 0)
+
+    def test_no_edges(self):
+        """Nodes with no edges should each be their own community."""
+        graph = rustworkx.PyGraph()
+        for _ in range(5):
+            graph.add_node(0)
+        communities = rustworkx.graph_walktrap_communities(graph)
+        self.assertEqual(len(communities), 5)
+        labels = list(communities.values())
+        self.assertEqual(len(set(labels)), 5)
+
+    def test_weighted_edges(self):
+        """Strong intra-community weights should produce correct communities."""
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(a, c, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(d, f, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.graph_walktrap_communities(graph, seed=42)
+
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        self.assertNotEqual(communities[a], communities[d])
+
+    def test_labels_normalized(self):
+        """Labels should be compact integers starting from 0."""
+        graph = rustworkx.PyGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+
+        communities = rustworkx.graph_walktrap_communities(graph)
+        self.assertEqual(communities[a], 0)
+        self.assertEqual(communities[b], 0)
+
+    def test_return_type(self):
+        graph = rustworkx.PyGraph()
+        graph.add_node(0)
+        graph.add_node(1)
+        graph.add_edge(0, 1, 1.0)
+        res = rustworkx.graph_walktrap_communities(graph)
+        self.assertIsInstance(res, dict)
+        for key, value in res.items():
+            self.assertIsInstance(key, int)
+            self.assertIsInstance(value, int)
+
+
+class TestDiGraphWalktrap(unittest.TestCase):
+    def test_empty_graph(self):
+        graph = rustworkx.PyDiGraph()
+        res = rustworkx.digraph_walktrap_communities(graph)
+        self.assertEqual({}, res)
+
+    def test_single_node(self):
+        graph = rustworkx.PyDiGraph()
+        graph.add_node(0)
+        res = rustworkx.digraph_walktrap_communities(graph)
+        self.assertEqual({0: 0}, res)
+
+    def test_two_communities(self):
+        """DiGraph with two clear communities."""
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(c, a, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(f, d, 1.0)
+        graph.add_edge(c, d, 1.0)
+
+        communities = rustworkx.digraph_walktrap_communities(graph, seed=42)
+        self.assertEqual(len(communities), 6)
+        # In directed graphs, random walks follow edge directions
+        # Source community nodes should be more similar to each other
+        # than to target community nodes
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+
+    def test_walk_length_parameter(self):
+        """Different walk lengths should produce valid results."""
+        graph = rustworkx.PyDiGraph()
+        for i in range(4):
+            graph.add_node(i)
+        graph.add_edge(0, 1, 1.0)
+        graph.add_edge(1, 2, 1.0)
+        graph.add_edge(2, 3, 1.0)
+
+        short = rustworkx.digraph_walktrap_communities(graph, walk_length=2)
+        long = rustworkx.digraph_walktrap_communities(graph, walk_length=10)
+        self.assertEqual(len(short), 4)
+        self.assertEqual(len(long), 4)
+

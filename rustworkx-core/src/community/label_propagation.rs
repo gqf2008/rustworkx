@@ -226,7 +226,12 @@ mod tests {
         assert_eq!(communities[&d], communities[&e]);
         assert_eq!(communities[&e], communities[&f]);
         // Labels should be compact (0, 1, 2, ...)
-        let unique_labels: Vec<_> = communities.values().copied().collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let unique_labels: Vec<_> = communities
+            .values()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         let max_label = unique_labels.iter().max().copied().unwrap_or(0);
         assert!((max_label as usize) < unique_labels.len());
     }

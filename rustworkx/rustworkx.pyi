@@ -252,6 +252,7 @@ def graph_louvain_communities(
     default_weight: float = ...,
     max_levels: int | None = ...,
     resolution: float | None = ...,
+    seed: int | None = ...,
 ) -> dict[int, int]: ...
 def digraph_louvain_communities(
     graph: PyDiGraph,
@@ -260,6 +261,7 @@ def digraph_louvain_communities(
     default_weight: float = ...,
     max_levels: int | None = ...,
     resolution: float | None = ...,
+    seed: int | None = ...,
 ) -> dict[int, int]: ...
 def graph_leiden_communities(
     graph: PyGraph,
@@ -277,6 +279,72 @@ def digraph_leiden_communities(
     default_weight: float = ...,
     max_iterations: int = ...,
     resolution: float | None = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+
+def graph_girvan_newman(
+    graph: PyGraph,
+    /,
+    max_steps: int | None = ...,
+) -> list[dict[int, int]]: ...
+
+def digraph_girvan_newman(
+    graph: PyDiGraph,
+    /,
+    max_steps: int | None = ...,
+) -> list[dict[int, int]]: ...
+
+def graph_greedy_modularity_communities(
+    graph: PyGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    resolution: float | None = ...,
+) -> dict[int, int]: ...
+
+def digraph_greedy_modularity_communities(
+    graph: PyDiGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    resolution: float | None = ...,
+) -> dict[int, int]: ...
+
+def graph_infomap_communities(
+    graph: PyGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    max_iterations: int | None = ...,
+    teleport_prob: float | None = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+
+def digraph_infomap_communities(
+    graph: PyDiGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    max_iterations: int | None = ...,
+    teleport_prob: float | None = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+
+def graph_walktrap_communities(
+    graph: PyGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    walk_length: int | None = ...,
+    seed: int | None = ...,
+) -> dict[int, int]: ...
+
+def digraph_walktrap_communities(
+    graph: PyDiGraph,
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    walk_length: int | None = ...,
     seed: int | None = ...,
 ) -> dict[int, int]: ...
 

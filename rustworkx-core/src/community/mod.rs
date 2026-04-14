@@ -16,11 +16,19 @@
 //! in graphs. Communities are groups of nodes that are more densely
 //! connected internally than to the rest of the graph.
 
+mod girvan_newman;
+mod greedy_modularity;
+mod infomap;
 mod label_propagation;
 mod leiden;
 mod louvain;
+mod walktrap;
 
+pub use girvan_newman::girvan_newman;
+pub use greedy_modularity::greedy_modularity_communities;
+pub use infomap::infomap_communities;
 pub use label_propagation::label_propagation;
 pub use leiden::leiden_communities;
 pub use louvain::louvain_communities;
 pub use louvain::modularity;
+pub use walktrap::walktrap_communities;
