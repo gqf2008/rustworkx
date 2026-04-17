@@ -23,6 +23,8 @@ mod label_propagation;
 mod leiden;
 mod louvain;
 mod modularity;
+pub(crate) mod random;
+pub(crate) mod util;
 mod walktrap;
 
 pub use girvan_newman::girvan_newman;

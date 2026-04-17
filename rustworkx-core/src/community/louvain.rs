@@ -13,6 +13,7 @@
 use hashbrown::HashMap;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 
+use crate::community::random::fisher_yates_shuffle;
 use crate::dictmap::{DictMap, InitWithHasher};
 
 /// Louvain community detection algorithm.
@@ -35,6 +36,8 @@ use crate::dictmap::{DictMap, InitWithHasher};
 ///
 /// * `graph` - The graph to analyze. Edge weights must be f64.
 /// * `max_levels` - Maximum number of hierarchical levels to process. Default: 100.
+/// * `max_pass_iterations` - Maximum number of inner local-moving iterations per level.
+///   Default: 100.
 /// * `resolution` - Resolution parameter (gamma). Values > 1 produce more communities,
 ///   values < 1 produce fewer. Default: 1.0.
 /// * `seed` - Optional random seed for reproducibility. Default: 42.
@@ -70,7 +73,7 @@ use crate::dictmap::{DictMap, InitWithHasher};
 /// // Single bridge between communities
 /// graph.add_edge(c, d, 1.0);
 ///
-/// let communities = louvain_communities(&graph, None, None, None);
+/// let communities = louvain_communities(&graph, None, None, None, None);
 ///
 /// // Nodes in the same community should have the same label
 /// assert_eq!(communities[&a], communities[&b]);
@@ -82,6 +85,7 @@ use crate::dictmap::{DictMap, InitWithHasher};
 pub fn louvain_communities<G>(
     graph: G,
     max_levels: Option<usize>,
+    max_pass_iterations: Option<usize>,
     resolution: Option<f64>,
     seed: Option<u64>,
 ) -> DictMap<G::NodeId, u32>
@@ -92,6 +96,7 @@ where
     f64: From<G::EdgeWeight>,
 {
     let max_levels = max_levels.unwrap_or(100);
+    let max_pass_iterations = max_pass_iterations.unwrap_or(100);
     let resolution = resolution.unwrap_or(1.0);
     let mut seed = seed.unwrap_or(42);
 
@@ -104,9 +109,10 @@ where
     let nodes: Vec<G::NodeId> = graph.node_identifiers().collect();
     let n = nodes.len();
 
-    // Build adjacency list with weights
+    // Build adjacency list with weights and precompute self-loop weights
     let mut adj: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
     let mut total_weight: f64 = 0.0;
+    let mut self_loop: Vec<f64> = vec![0.0; n];
 
     for i in 0..n {
         for edge in graph.edges(nodes[i]) {
@@ -114,6 +120,9 @@ where
             let weight: f64 = f64::from(*edge.weight());
             adj[i].push((target_idx, weight));
             total_weight += weight;
+            if target_idx == i {
+                self_loop[i] += weight;
+            }
         }
     }
 
@@ -148,6 +157,7 @@ where
     // Current graph data (starts as the original graph)
     let mut current_adj = adj;
     let mut current_degree = node_degree;
+    let mut current_self_loop = self_loop;
     let mut current_m = m;
     let mut current_n = n;
 
@@ -158,9 +168,10 @@ where
             &mut layer_comm,
             &current_adj,
             &current_degree,
+            &current_self_loop,
             current_m,
             resolution,
-            100, // max inner-pass iterations
+            max_pass_iterations,
             &mut seed,
         );
 
@@ -189,26 +200,15 @@ where
 
         current_adj = next.adj;
         current_degree = next.degree;
+        current_self_loop = next.self_loop;
         current_m = next.m;
         current_n = next.n;
     }
 
     // orig_to_layer now holds the final community for each original node.
     // Normalize to compact integers starting from 0.
-    let mut label_map: HashMap<u32, u32> = HashMap::new();
-    let mut next_label: u32 = 0;
-
-    let mut result = DictMap::with_capacity(n);
-    for (i, &node) in nodes.iter().enumerate() {
-        let raw_label = orig_to_layer[i] as u32;
-        let compact_label = label_map.entry(raw_label).or_insert_with(|| {
-            let label = next_label;
-            next_label += 1;
-            label
-        });
-        result.insert(node, *compact_label);
-    }
-    result
+    let final_labels: Vec<u32> = orig_to_layer.iter().map(|&x| x as u32).collect();
+    crate::community::util::normalize_labels(&nodes, &final_labels)
 }
 
 /// Normalize community labels to a compact 0..k range.
@@ -237,6 +237,7 @@ fn normalize_communities(comm: &[u32]) -> (Vec<u32>, usize) {
 struct AggregatedGraph {
     adj: Vec<Vec<(usize, f64)>>,
     degree: Vec<f64>,
+    self_loop: Vec<f64>,
     m: f64,
     n: usize,
 }
@@ -267,7 +268,9 @@ fn aggregate_graph(
     }
 
     let mut new_adj: Vec<Vec<(usize, f64)>> = Vec::with_capacity(k);
-    for hm in temp_adj {
+    let mut self_loop: Vec<f64> = vec![0.0; k];
+    for (ci, hm) in temp_adj.into_iter().enumerate() {
+        self_loop[ci] = hm.get(&ci).copied().unwrap_or(0.0);
         new_adj.push(hm.into_iter().collect());
     }
 
@@ -276,15 +279,18 @@ fn aggregate_graph(
     AggregatedGraph {
         adj: new_adj,
         degree,
+        self_loop,
         m,
         n: k,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn louvain_pass(
     node_to_community: &mut [u32],
     adj: &[Vec<(usize, f64)>],
     node_degree: &[f64],
+    self_loop: &[f64],
     m: f64,
     resolution: f64,
     max_pass_iterations: usize,
@@ -316,11 +322,7 @@ fn louvain_pass(
 
         // Shuffle order
         let mut order: Vec<usize> = (0..n).collect();
-        for i in (1..n).rev() {
-            *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let j = (*seed as usize) % (i + 1);
-            order.swap(i, j);
-        }
+        fisher_yates_shuffle(&mut order, seed);
 
         for &i in &order {
             let ci = node_to_community[i];
@@ -331,7 +333,7 @@ fn louvain_pass(
 
             // Remove node i from community ci
             let ki_in = edge_weight_to_community(i, ci, adj, node_to_community);
-            let ki_self = self_loop_weight(i, adj);
+            let ki_self = self_loop[i];
             *k_in.entry(ci).or_insert(0.0) -= ki_in + ki_self;
             *k_tot.entry(ci).or_insert(0.0) -= ki;
 
@@ -359,7 +361,7 @@ fn louvain_pass(
             // Move node
             node_to_community[i] = best_comm;
             let new_ki_in = edge_weight_to_community(i, best_comm, adj, node_to_community);
-            let new_ki_self = self_loop_weight(i, adj);
+            let new_ki_self = self_loop[i];
 
             *k_in.entry(best_comm).or_insert(0.0) += new_ki_in + new_ki_self;
             *k_tot.entry(best_comm).or_insert(0.0) += ki;
@@ -391,16 +393,6 @@ fn edge_weight_to_community(
     sum
 }
 
-/// Self-loop weight for a node
-fn self_loop_weight(node: usize, adj: &[Vec<(usize, f64)>]) -> f64 {
-    for &(j, w) in &adj[node] {
-        if j == node {
-            return w;
-        }
-    }
-    0.0
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -429,7 +421,7 @@ mod tests {
         graph.add_edge(d, f, 1.0);
         graph.add_edge(c, d, 1.0);
 
-        let communities = louvain_communities(&graph, None, None, Some(42));
+        let communities = louvain_communities(&graph, None, None, None, Some(42));
 
         // Same community nodes
         assert_eq!(communities[&a], communities[&b]);
@@ -443,7 +435,7 @@ mod tests {
     #[test]
     fn test_empty_graph() {
         let graph = UnGraph::<i32, f64>::new_undirected();
-        let communities = louvain_communities(&graph, None, None, None);
+        let communities = louvain_communities(&graph, None, None, None, None);
         assert!(communities.is_empty());
     }
 
@@ -451,7 +443,7 @@ mod tests {
     fn test_single_node() {
         let mut graph = UnGraph::<i32, f64>::new_undirected();
         let a = graph.add_node(0);
-        let communities = louvain_communities(&graph, None, None, None);
+        let communities = louvain_communities(&graph, None, None, None, None);
         assert_eq!(communities.len(), 1);
         assert!(communities.contains_key(&a));
     }
@@ -462,7 +454,7 @@ mod tests {
         for _ in 0..5 {
             graph.add_node(0);
         }
-        let communities = louvain_communities(&graph, None, None, None);
+        let communities = louvain_communities(&graph, None, None, None, None);
         assert_eq!(communities.len(), 5);
         let labels: Vec<u32> = communities.values().copied().collect();
         let unique: HashSet<u32> = labels.into_iter().collect();
@@ -479,7 +471,7 @@ mod tests {
             }
         }
 
-        let communities = louvain_communities(&graph, None, None, Some(42));
+        let communities = louvain_communities(&graph, None, None, None, Some(42));
         let labels: Vec<u32> = communities.values().copied().collect();
         let unique: HashSet<u32> = labels.into_iter().collect();
         assert_eq!(unique.len(), 1);
@@ -503,7 +495,7 @@ mod tests {
         graph.add_edge(d, f, 10.0);
         graph.add_edge(c, d, 0.1);
 
-        let communities = louvain_communities(&graph, None, None, Some(42));
+        let communities = louvain_communities(&graph, None, None, None, Some(42));
 
         assert_eq!(communities[&a], communities[&b]);
         assert_eq!(communities[&b], communities[&c]);
@@ -541,7 +533,7 @@ mod tests {
         let b = graph.add_node(1);
         graph.add_edge(a, b, 1.0);
 
-        let communities = louvain_communities(&graph, None, None, None);
+        let communities = louvain_communities(&graph, None, None, None, None);
         // Labels should start from 0
         assert_eq!(communities[&a], 0);
         assert_eq!(communities[&b], 0);
@@ -560,8 +552,8 @@ mod tests {
         graph.add_edge(b, c, 1.0);
         graph.add_edge(c, d, 1.0);
 
-        let c1 = louvain_communities(&graph, None, None, Some(123));
-        let c2 = louvain_communities(&graph, None, None, Some(123));
+        let c1 = louvain_communities(&graph, None, None, None, Some(123));
+        let c2 = louvain_communities(&graph, None, None, None, Some(123));
         // Same number of communities
         let n1: HashSet<u32> = c1.values().copied().collect();
         let n2: HashSet<u32> = c2.values().copied().collect();
@@ -579,7 +571,7 @@ mod tests {
         graph.add_edge(b, c, 1.0);
         graph.add_edge(c, d, -0.5); // negative edge
 
-        let communities = louvain_communities(&graph, None, None, Some(42));
+        let communities = louvain_communities(&graph, None, None, None, Some(42));
         // Should not panic; all nodes should be assigned
         assert_eq!(communities.len(), 4);
     }
@@ -610,7 +602,7 @@ mod tests {
         graph.add_edge(c0[2], c1[0], 1.0);
         graph.add_edge(c1[2], c2[0], 1.0);
 
-        let communities = louvain_communities(&graph, None, None, Some(42));
+        let communities = louvain_communities(&graph, None, None, None, Some(42));
         assert_eq!(communities.len(), 9);
 
         // Each clique should be mostly within one community

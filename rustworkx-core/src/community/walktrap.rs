@@ -51,6 +51,10 @@ impl Ord for F64Ord {
 /// The key insight is that random walks tend to stay within communities, so
 /// nodes in the same community have similar random walk probability distributions.
 ///
+/// **Memory note:** This algorithm builds an `n × n` transition matrix and
+/// distance matrix in memory. For large graphs (e.g. `n > 10,000`), this can
+/// consume significant RAM. Consider other algorithms for very large networks.
+///
 /// # Arguments
 ///
 /// * `graph` - The graph to analyze. Edge weights must be f64.

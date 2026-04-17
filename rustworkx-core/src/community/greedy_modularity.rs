@@ -265,47 +265,13 @@ where
             }
         }
 
-        // Merge cj's remaining neighbors into ci (skip ci and inactive)
-        let remaining: Vec<(u32, f64)> = e[cj as usize]
-            .iter()
-            .filter_map(|(&ck, &v)| {
-                if ck != ci && active[ck as usize] {
-                    Some((ck, v))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for &(ck, e_ck) in &remaining {
-            let e_ci_ck = e[ci as usize].entry(ck).or_insert(0.0);
-            *e_ci_ck += e_ck;
-            let e_combined = *e_ci_ck;
-            // Update reverse mapping
-            e[ck as usize].remove(&cj);
-            e[ck as usize].insert(ci, e_combined);
-            let dq_new = 2.0 * (e_combined - resolution * a[ci as usize] * a[ck as usize]);
-            queue.push((ci, ck), F64Ord(dq_new));
-        }
-
-        // Clear merged community's entries
+        // All active neighbors of cj were already processed in neighbors_to_update.
+        // Clear merged community's entries.
         e[cj as usize].clear();
     }
 
     // Normalize labels to compact integers starting from 0
-    let mut label_map: HashMap<u32, u32> = HashMap::new();
-    let mut next_label: u32 = 0;
-
-    let mut result = DictMap::with_capacity(n);
-    for (i, &node) in nodes.iter().enumerate() {
-        let raw_label = node_to_community[i];
-        let compact_label = label_map.entry(raw_label).or_insert_with(|| {
-            let label = next_label;
-            next_label += 1;
-            label
-        });
-        result.insert(node, *compact_label);
-    }
-    result
+    crate::community::util::normalize_labels(&nodes, &node_to_community)
 }
 
 #[cfg(test)]

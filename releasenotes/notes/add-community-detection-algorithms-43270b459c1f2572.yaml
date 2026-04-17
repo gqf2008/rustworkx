@@ -1,0 +1,28 @@
+---
+features:
+  - |
+    Added multiple community detection algorithms to ``rustworkx``:
+
+    - :func:`~rustworkx.graph_louvain_communities` /
+      :func:`~rustworkx.digraph_louvain_communities` — Louvain hierarchical
+      modularity optimization with configurable ``max_levels``,
+      ``max_pass_iterations``, ``resolution``, and ``seed`` parameters.
+    - :func:`~rustworkx.graph_leiden_communities` /
+      :func:`~rustworkx.digraph_leiden_communities` — Leiden algorithm that
+      improves upon Louvain by guaranteeing well-connected communities.
+    - :func:`~rustworkx.graph_girvan_newman` — Girvan-Newman edge-betweenness
+      based hierarchical decomposition.
+    - :func:`~rustworkx.graph_greedy_modularity_communities` — Greedy modularity
+      maximization with priority-queue optimization.
+    - :func:`~rustworkx.graph_infomap_communities` /
+      :func:`~rustworkx.digraph_infomap_communities` — Infomap
+      information-theoretic community detection.
+    - :func:`~rustworkx.graph_walktrap_communities` /
+      :func:`~rustworkx.digraph_walktrap_communities` — Walktrap random-walk
+      distance based clustering.
+    - :func:`~rustworkx.graph_label_propagation` /
+      :func:`~rustworkx.digraph_label_propagation` — Label propagation
+      community detection.
+    - :func:`~rustworkx.graph_modularity` /
+      :func:`~rustworkx.digraph_modularity` — Standalone modularity scoring
+      function with proper error handling for missing nodes.

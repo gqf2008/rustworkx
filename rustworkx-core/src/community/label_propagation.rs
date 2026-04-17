@@ -172,20 +172,7 @@ where
     }
 
     // Convert back to NodeId keys with normalized community labels (0, 1, 2, ...)
-    let mut label_map: HashMap<u32, u32> = HashMap::new();
-    let mut next_label: u32 = 0;
-
-    let mut result = DictMap::with_capacity(n);
-    for (i, &node) in nodes.iter().enumerate() {
-        let raw_label = labels[i];
-        let compact_label = label_map.entry(raw_label).or_insert_with(|| {
-            let label = next_label;
-            next_label += 1;
-            label
-        });
-        result.insert(node, *compact_label);
-    }
-    result
+    crate::community::util::normalize_labels(&nodes, &labels)
 }
 
 #[cfg(test)]

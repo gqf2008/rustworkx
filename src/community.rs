@@ -185,6 +185,8 @@ pub fn digraph_label_propagation(
 ///     provided. Default: 1.0.
 /// :param max_levels: Maximum number of hierarchical levels to process.
 ///     Default: 100.
+/// :param max_pass_iterations: Maximum number of inner local-moving iterations
+///     per level. Default: 100.
 /// :param resolution: Resolution parameter (gamma). Values > 1 produce more
 ///     communities, values < 1 produce fewer. Default: 1.0.
 /// :param seed: Optional random seed for reproducibility. When not provided,
@@ -216,20 +218,22 @@ pub fn digraph_label_propagation(
 ///     communities = rx.louvain_communities(graph)
 ///     print(communities)
 ///
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_levels=None, resolution=None, seed=None))]
+#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_levels=None, max_pass_iterations=None, resolution=None, seed=None))]
 pub fn graph_louvain_communities(
     py: Python,
     graph: &graph::PyGraph,
     weight_fn: Option<Py<PyAny>>,
     default_weight: f64,
     max_levels: Option<usize>,
+    max_pass_iterations: Option<usize>,
     resolution: Option<f64>,
     seed: Option<u64>,
 ) -> PyResult<Py<PyAny>> {
     // Build a new graph with f64 weights
     let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
-    let result = core_louvain(&weighted_graph, max_levels, resolution, seed);
+    let result = core_louvain(&weighted_graph, max_levels, max_pass_iterations, resolution, seed);
 
     let out_dict = PyDict::new(py);
     for (node, label) in result {
@@ -260,6 +264,8 @@ pub fn graph_louvain_communities(
 ///     provided. Default: 1.0.
 /// :param max_levels: Maximum number of hierarchical levels to process.
 ///     Default: 100.
+/// :param max_pass_iterations: Maximum number of inner local-moving iterations
+///     per level. Default: 100.
 /// :param resolution: Resolution parameter (gamma). Values > 1 produce more
 ///     communities, values < 1 produce fewer. Default: 1.0.
 /// :param seed: Optional random seed for reproducibility. When not provided,
@@ -291,20 +297,22 @@ pub fn graph_louvain_communities(
 ///     communities = rx.digraph_louvain_communities(graph)
 ///     print(communities)
 ///
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_levels=None, resolution=None, seed=None))]
+#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_levels=None, max_pass_iterations=None, resolution=None, seed=None))]
 pub fn digraph_louvain_communities(
     py: Python,
     graph: &digraph::PyDiGraph,
     weight_fn: Option<Py<PyAny>>,
     default_weight: f64,
     max_levels: Option<usize>,
+    max_pass_iterations: Option<usize>,
     resolution: Option<f64>,
     seed: Option<u64>,
 ) -> PyResult<Py<PyAny>> {
     // Build a new graph with f64 weights
     let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
-    let result = core_louvain(&weighted_graph, max_levels, resolution, seed);
+    let result = core_louvain(&weighted_graph, max_levels, max_pass_iterations, resolution, seed);
 
     let out_dict = PyDict::new(py);
     for (node, label) in result {

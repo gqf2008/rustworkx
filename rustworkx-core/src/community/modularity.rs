@@ -112,13 +112,12 @@ pub(crate) fn modularity_from_partition(
         return 0.0;
     }
 
-    let max_comm = labels.iter().copied().max().unwrap_or(0) as usize + 1;
-    let mut sum_deg = vec![0.0; max_comm];
+    let mut sum_deg: HashMap<u32, f64> = HashMap::new();
     for i in 0..labels.len() {
-        sum_deg[labels[i] as usize] += degree[i];
+        *sum_deg.entry(labels[i]).or_insert(0.0) += degree[i];
     }
 
-    let expected: f64 = sum_deg.iter().map(|d| d * d).sum::<f64>() / (2.0 * two_m);
+    let expected: f64 = sum_deg.values().map(|d| d * d).sum::<f64>() / (2.0 * two_m);
 
     let mut actual = 0.0;
     for &(i, j, w) in edges {

@@ -251,6 +251,7 @@ def graph_louvain_communities(
     weight_fn: Callable[[Any], float] | None = ...,
     default_weight: float = ...,
     max_levels: int | None = ...,
+    max_pass_iterations: int | None = ...,
     resolution: float | None = ...,
     seed: int | None = ...,
 ) -> dict[int, int]: ...
@@ -260,6 +261,7 @@ def digraph_louvain_communities(
     weight_fn: Callable[[Any], float] | None = ...,
     default_weight: float = ...,
     max_levels: int | None = ...,
+    max_pass_iterations: int | None = ...,
     resolution: float | None = ...,
     seed: int | None = ...,
 ) -> dict[int, int]: ...

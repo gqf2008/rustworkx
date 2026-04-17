@@ -24,6 +24,7 @@
 use hashbrown::HashMap;
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 
+use crate::community::random::fisher_yates_shuffle;
 use crate::dictmap::{DictMap, InitWithHasher};
 
 /// Infomap community detection algorithm.
@@ -138,12 +139,7 @@ where
     let mut order: Vec<usize> = (0..n).collect();
 
     for _iteration in 0..max_iterations {
-        // Shuffle using LCG
-        for i in (1..n).rev() {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let j = (seed as usize) % (i + 1);
-            order.swap(i, j);
-        }
+        fisher_yates_shuffle(&mut order, &mut seed);
 
         let mut improved = false;
         let teleport_per_node = teleport / n as f64;
@@ -214,20 +210,7 @@ where
     }
 
     // Normalize labels
-    let mut label_map: HashMap<u32, u32> = HashMap::new();
-    let mut next_label: u32 = 0;
-
-    let mut result = DictMap::with_capacity(n);
-    for (i, &node) in nodes.iter().enumerate() {
-        let raw_label = node_to_community[i];
-        let compact_label = label_map.entry(raw_label).or_insert_with(|| {
-            let label = next_label;
-            next_label += 1;
-            label
-        });
-        result.insert(node, *compact_label);
-    }
-    result
+    crate::community::util::normalize_labels(&nodes, &node_to_community)
 }
 
 /// Compute stationary distribution
@@ -242,16 +225,12 @@ fn compute_stationary_distribution(
     let mut p_new: Vec<f64> = vec![0.0; n];
     let tol = 1e-9;
     let max_iter = 1000;
+    let teleport_share = teleport / n as f64;
+    let one_minus_t = 1.0 - teleport;
 
     for _ in 0..max_iter {
-        // Zero out the new buffer
-        for v in p_new.iter_mut().take(n) {
-            *v = 0.0;
-        }
+        p_new.fill(0.0);
 
-        // Distribute probability mass via random walk transitions
-        let teleport_share = teleport / n as f64;
-        let one_minus_t = 1.0 - teleport;
         for i in 0..n {
             let pi = p[i];
             if out_weight[i] > 0.0 {
@@ -261,23 +240,23 @@ fn compute_stationary_distribution(
                 }
             }
         }
-        // Teleport: distribute uniformly from all nodes (O(n) instead of O(n²))
-        let total_teleport: f64 = p.iter().sum::<f64>() * teleport_share;
-        for v in p_new.iter_mut().take(n) {
-            *v += total_teleport;
+
+        // Teleport: p always sums to 1 after normalization, so total_teleport is constant
+        for v in &mut p_new {
+            *v += teleport_share;
         }
 
-        // Normalize
+        // Normalize and compute diff in one pass
         let sum: f64 = p_new.iter().sum();
+        let mut diff = 0.0;
         if sum > 0.0 {
-            for v in &mut p_new {
-                *v /= sum;
+            let inv_sum = 1.0 / sum;
+            for k in 0..n {
+                p_new[k] *= inv_sum;
+                diff += (p_new[k] - p[k]).abs();
             }
         }
 
-        // Check convergence
-        let diff: f64 = (0..n).map(|k| (p_new[k] - p[k]).abs()).sum();
-        // Swap buffers instead of cloning
         std::mem::swap(&mut p, &mut p_new);
         if diff < tol {
             break;

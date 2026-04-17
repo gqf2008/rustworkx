@@ -302,6 +302,81 @@ class TestGraphLouvainCommunities(unittest.TestCase):
         labels = sorted(set(communities.values()))
         self.assertEqual(labels, list(range(len(labels))))
 
+    def test_max_pass_iterations_zero(self):
+        """With max_pass_iterations=0, no local moves happen."""
+        graph = rustworkx.PyGraph()
+        a = graph.add_node(0)
+        b = graph.add_node(1)
+        c = graph.add_node(2)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+
+        communities = rustworkx.graph_louvain_communities(
+            graph, max_pass_iterations=0
+        )
+        # No moves allowed, each node stays in its own community
+        unique = set(communities.values())
+        self.assertEqual(len(unique), 3)
+
+    def test_max_pass_iterations_limits(self):
+        """max_pass_iterations=1 limits the inner pass to one iteration."""
+        graph = rustworkx.PyGraph()
+        # Two cliques of 4 nodes each, connected by a single bridge
+        c1 = [graph.add_node(i) for i in range(4)]
+        c2 = [graph.add_node(i + 4) for i in range(4)]
+        for i in range(len(c1)):
+            for j in range(i + 1, len(c1)):
+                graph.add_edge(c1[i], c1[j], 1.0)
+        for i in range(len(c2)):
+            for j in range(i + 1, len(c2)):
+                graph.add_edge(c2[i], c2[j], 1.0)
+        graph.add_edge(c1[0], c2[0], 1.0)
+
+        # With only 1 pass iteration, some nodes may not find their
+        # optimal community yet. The result should still be valid
+        # (all nodes assigned) but may differ from unlimited passes.
+        communities = rustworkx.graph_louvain_communities(
+            graph, max_pass_iterations=1, seed=42
+        )
+        self.assertEqual(len(communities), 8)
+        for label in communities.values():
+            self.assertIsInstance(label, int)
+
+    def test_self_loops(self):
+        """Self-loops should not cause all nodes to merge into one community."""
+        graph = rustworkx.PyGraph()
+        a = graph.add_node(0)
+        b = graph.add_node(1)
+        c = graph.add_node(2)
+        d = graph.add_node(3)
+        e = graph.add_node(4)
+        f = graph.add_node(5)
+
+        # Community 1: triangle with self-loops
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(a, a, 5.0)
+        graph.add_edge(b, b, 5.0)
+        # Community 2: triangle with self-loops
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+        graph.add_edge(d, d, 5.0)
+        graph.add_edge(e, e, 5.0)
+        # Bridge
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.graph_louvain_communities(graph, seed=42)
+
+        # Each triangle should remain mostly intact
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        # The two communities should be distinct
+        self.assertNotEqual(communities[a], communities[d])
+
 
 class TestDiGraphLouvainCommunities(unittest.TestCase):
     def test_empty_graph(self):
@@ -347,6 +422,41 @@ class TestDiGraphLouvainCommunities(unittest.TestCase):
         self.assertIn(communities[d], communities.values())
         self.assertIn(communities[e], communities.values())
         self.assertIn(communities[f], communities.values())
+
+    def test_self_loops(self):
+        """Self-loops should not collapse directed graph communities."""
+        graph = rustworkx.PyDiGraph()
+        a = graph.add_node(0)
+        b = graph.add_node(1)
+        c = graph.add_node(2)
+        d = graph.add_node(3)
+        e = graph.add_node(4)
+        f = graph.add_node(5)
+
+        # Community 1: directed cycle with self-loops
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(c, a, 1.0)
+        graph.add_edge(a, a, 5.0)
+        graph.add_edge(b, b, 5.0)
+        # Community 2: directed cycle with self-loops
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(f, d, 1.0)
+        graph.add_edge(d, d, 5.0)
+        graph.add_edge(e, e, 5.0)
+        # Weak bridge
+        graph.add_edge(c, d, 0.1)
+
+        communities = rustworkx.digraph_louvain_communities(graph, seed=42)
+
+        # Each cycle should remain mostly intact
+        self.assertEqual(communities[a], communities[b])
+        self.assertEqual(communities[b], communities[c])
+        self.assertEqual(communities[d], communities[e])
+        self.assertEqual(communities[e], communities[f])
+        # The two communities should be distinct
+        self.assertNotEqual(communities[a], communities[d])
 
     def test_return_type(self):
         graph = rustworkx.PyDiGraph()
