@@ -160,7 +160,7 @@ where
             &current_degree,
             current_m,
             resolution,
-            100,
+            100, // max inner-pass iterations
             &mut seed,
         );
 
@@ -228,6 +228,12 @@ fn normalize_communities(comm: &[u32]) -> (Vec<u32>, usize) {
 }
 
 /// Aggregate a graph by contracting each community into a single supernode.
+///
+/// Each original edge (i, j, w) is mapped to (community[i], community[j], w).
+/// Parallel edges are merged by summing weights. For undirected graphs,
+/// adjacency lists contain each edge in both directions, so inter-community
+/// edge weights are naturally double-counted — this is consistent with the
+/// modularity formula which uses `2m` as the normalisation denominator.
 struct AggregatedGraph {
     adj: Vec<Vec<(usize, f64)>>,
     degree: Vec<f64>,
@@ -284,7 +290,7 @@ fn louvain_pass(
     node_degree: &[f64],
     m: f64,
     resolution: f64,
-    max_levels: usize,
+    max_pass_iterations: usize,
     seed: &mut u64,
 ) {
     let n = adj.len();
@@ -308,7 +314,7 @@ fn louvain_pass(
         }
     }
 
-    for _level in 0..max_levels {
+    for _pass in 0..max_pass_iterations {
         let mut improved = false;
 
         // Shuffle order
@@ -633,5 +639,49 @@ mod tests {
         let communities = louvain_communities(&graph, None, None, Some(42));
         // Should not panic; all nodes should be assigned
         assert_eq!(communities.len(), 4);
+    }
+
+    #[test]
+    fn test_chain_of_cliques() {
+        // Three cliques of 3 nodes each, connected by weak bridges.
+        // This exercises the aggregation path with a larger graph.
+        let mut graph = UnGraph::<i32, f64>::new_undirected();
+
+        // Clique 0
+        let c0: Vec<_> = (0..3).map(|_| graph.add_node(0)).collect();
+        // Clique 1
+        let c1: Vec<_> = (0..3).map(|_| graph.add_node(0)).collect();
+        // Clique 2
+        let c2: Vec<_> = (0..3).map(|_| graph.add_node(0)).collect();
+
+        // Fully connect each clique
+        for clique in [&c0, &c1, &c2] {
+            for i in 0..clique.len() {
+                for j in (i + 1)..clique.len() {
+                    graph.add_edge(clique[i], clique[j], 10.0);
+                }
+            }
+        }
+
+        // Weak bridges between cliques
+        graph.add_edge(c0[2], c1[0], 1.0);
+        graph.add_edge(c1[2], c2[0], 1.0);
+
+        let communities = louvain_communities(&graph, None, None, Some(42));
+        assert_eq!(communities.len(), 9);
+
+        // Each clique should be mostly within one community
+        let comm_c0: HashSet<u32> = c0.iter().map(|n| communities[n]).collect();
+        let comm_c1: HashSet<u32> = c1.iter().map(|n| communities[n]).collect();
+        let comm_c2: HashSet<u32> = c2.iter().map(|n| communities[n]).collect();
+
+        // With strong intra-clique edges, each clique should be in a single community
+        assert_eq!(comm_c0.len(), 1, "Clique 0 nodes should be in same community");
+        assert_eq!(comm_c1.len(), 1, "Clique 1 nodes should be in same community");
+        assert_eq!(comm_c2.len(), 1, "Clique 2 nodes should be in same community");
+
+        // The three cliques should be in distinct communities
+        assert_ne!(comm_c0.iter().next().unwrap(), comm_c1.iter().next().unwrap());
+        assert_ne!(comm_c1.iter().next().unwrap(), comm_c2.iter().next().unwrap());
     }
 }

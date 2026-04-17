@@ -1328,6 +1328,25 @@ class TestGraphModularity(unittest.TestCase):
         q = rustworkx.graph_modularity(graph, communities)
         self.assertGreater(q, 0.0)
 
+    def test_missing_node_raises(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        graph.add_edge(a, b, 1.0)
+
+        communities = {a: 0, b: 0}
+        with self.assertRaises(BaseException):
+            rustworkx.graph_modularity(graph, communities)
+
+
+    def test_extra_node_ignored(self):
+        graph = rustworkx.PyGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+
+        communities = {a: 0, b: 0, 999: 1}
+        q = rustworkx.graph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+
 
 class TestDiGraphModularity(unittest.TestCase):
     def test_two_communities(self):
@@ -1359,6 +1378,26 @@ class TestDiGraphModularity(unittest.TestCase):
 
         # All in same community
         communities = {a: 0, b: 0, c: 0}
+        q = rustworkx.digraph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+
+    def test_missing_node_raises(self):
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        graph.add_edge(a, b, 1.0)
+
+        # communities dict missing node c
+        communities = {a: 0, b: 0}
+        with self.assertRaises(BaseException):
+            rustworkx.digraph_modularity(graph, communities)
+
+    def test_extra_node_ignored(self):
+        graph = rustworkx.PyDiGraph()
+        a, b = graph.add_node(0), graph.add_node(1)
+        graph.add_edge(a, b, 1.0)
+
+        # communities dict has extra node not in graph
+        communities = {a: 0, b: 0, 999: 1}
         q = rustworkx.digraph_modularity(graph, communities)
         self.assertGreater(q, 0.0)
 
