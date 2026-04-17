@@ -17,6 +17,23 @@ use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIn
 
 use crate::dictmap::DictMap;
 
+/// Error type for modularity computation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModularityError {
+    /// A node is missing from the communities mapping.
+    NodeNotFound,
+}
+
+impl std::fmt::Display for ModularityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModularityError::NodeNotFound => write!(f, "node not found in communities"),
+        }
+    }
+}
+
+impl std::error::Error for ModularityError {}
+
 /// Compute the modularity of a given partition.
 ///
 /// Q = (1/2m) * sum[(A_ij - resolution * k_i*k_j/(2m)) * delta(c_i, c_j)]
@@ -30,7 +47,7 @@ pub fn modularity<G>(
     graph: G,
     communities: &DictMap<G::NodeId, u32>,
     resolution: Option<f64>,
-) -> Result<f64, &'static str>
+) -> Result<f64, ModularityError>
 where
     G: NodeIndexable + IntoEdges + IntoNodeIdentifiers + NodeCount,
     G::NodeId: std::cmp::Eq + std::hash::Hash + Copy,
@@ -58,11 +75,11 @@ where
 
     let mut q = 0.0;
     for node in graph.node_identifiers() {
-        let ci = *communities.get(&node).ok_or("node not found in communities")?;
+        let ci = *communities.get(&node).ok_or(ModularityError::NodeNotFound)?;
         let ki = degree[&node];
         for edge in graph.edges(node) {
             let target = edge.target();
-            let cj = *communities.get(&target).ok_or("target not found in communities")?;
+            let cj = *communities.get(&target).ok_or(ModularityError::NodeNotFound)?;
             if ci == cj {
                 let a_ij: f64 = f64::from(*edge.weight());
                 let kj = degree[&target];

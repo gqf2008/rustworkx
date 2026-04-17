@@ -248,15 +248,18 @@ fn aggregate_graph(
 ) -> AggregatedGraph {
     let k = community.iter().copied().max().map(|c| c as usize + 1).unwrap_or(0);
 
-    // Merge parallel edges using HashMap for O(deg) per node
+    // Merge parallel edges using HashMap for O(deg) per node.
+    // total_weight accumulates all directed edge weights; m = total_weight / 2.
     let mut temp_adj: Vec<HashMap<usize, f64>> = vec![HashMap::new(); k];
     let mut degree: Vec<f64> = vec![0.0; k];
+    let mut total_weight: f64 = 0.0;
 
     for i in 0..n {
         let ci = community[i] as usize;
         for &(j, w) in &adj[i] {
             let cj = community[j] as usize;
             *temp_adj[ci].entry(cj).or_insert(0.0) += w;
+            total_weight += w;
             if ci != cj {
                 degree[ci] += w;
             }
@@ -268,12 +271,6 @@ fn aggregate_graph(
         new_adj.push(hm.into_iter().collect());
     }
 
-    let mut total_weight = 0.0;
-    for ci in 0..k {
-        for &(_, w) in &new_adj[ci] {
-            total_weight += w;
-        }
-    }
     let m = total_weight / 2.0;
 
     AggregatedGraph {
