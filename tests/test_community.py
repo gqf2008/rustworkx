@@ -1334,7 +1334,7 @@ class TestGraphModularity(unittest.TestCase):
         graph.add_edge(a, b, 1.0)
 
         communities = {a: 0, b: 0}
-        with self.assertRaises(BaseException):
+        with self.assertRaises(KeyError):
             rustworkx.graph_modularity(graph, communities)
 
 
@@ -1388,7 +1388,7 @@ class TestDiGraphModularity(unittest.TestCase):
 
         # communities dict missing node c
         communities = {a: 0, b: 0}
-        with self.assertRaises(BaseException):
+        with self.assertRaises(KeyError):
             rustworkx.digraph_modularity(graph, communities)
 
     def test_extra_node_ignored(self):

@@ -22,6 +22,7 @@ mod infomap;
 mod label_propagation;
 mod leiden;
 mod louvain;
+mod modularity;
 mod walktrap;
 
 pub use girvan_newman::girvan_newman;
@@ -30,5 +31,5 @@ pub use infomap::infomap_communities;
 pub use label_propagation::label_propagation;
 pub use leiden::leiden_communities;
 pub use louvain::louvain_communities;
-pub use louvain::modularity;
+pub use modularity::modularity;
 pub use walktrap::walktrap_communities;

@@ -978,7 +978,8 @@ pub fn graph_modularity(
         let label = value.extract::<u32>()?;
         comm_map.insert(NodeIndex::new(node_idx), label);
     }
-    let result = rustworkx_core::community::modularity(&weighted_graph, &comm_map, resolution);
+    let result = rustworkx_core::community::modularity(&weighted_graph, &comm_map, resolution)
+        .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e))?;
     Ok(result)
 }
 
@@ -1012,6 +1013,7 @@ pub fn digraph_modularity(
         let label = value.extract::<u32>()?;
         comm_map.insert(NodeIndex::new(node_idx), label);
     }
-    let result = rustworkx_core::community::modularity(&weighted_graph, &comm_map, resolution);
+    let result = rustworkx_core::community::modularity(&weighted_graph, &comm_map, resolution)
+        .map_err(|e| pyo3::exceptions::PyKeyError::new_err(e))?;
     Ok(result)
 }

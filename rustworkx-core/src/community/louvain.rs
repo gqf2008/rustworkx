@@ -404,68 +404,14 @@ fn self_loop_weight(node: usize, adj: &[Vec<(usize, f64)>]) -> f64 {
     0.0
 }
 
-/// Compute the modularity of a given partition.
-///
-/// Q = (1/2m) * sum[(A_ij - resolution * k_i*k_j/(2m)) * delta(c_i, c_j)]
-///
-/// The `resolution` parameter defaults to 1.0. Values > 1 produce more communities,
-/// values < 1 produce fewer. Use the same resolution as was used in the community
-/// detection algorithm for consistent evaluation.
-pub fn modularity<G>(
-    graph: G,
-    communities: &DictMap<G::NodeId, u32>,
-    resolution: Option<f64>,
-) -> f64
-where
-    G: NodeIndexable + IntoEdges + IntoNodeIdentifiers + NodeCount,
-    G::NodeId: std::cmp::Eq + std::hash::Hash + Copy,
-    G::EdgeWeight: Copy,
-    f64: From<G::EdgeWeight>,
-{
-    let resolution = resolution.unwrap_or(1.0);
-    let mut m: f64 = 0.0;
-    let mut degree: HashMap<G::NodeId, f64> = HashMap::new();
-
-    for node in graph.node_identifiers() {
-        let mut d = 0.0;
-        for edge in graph.edges(node) {
-            let w: f64 = f64::from(*edge.weight());
-            d += w;
-            m += w;
-        }
-        degree.insert(node, d);
-    }
-
-    m /= 2.0;
-    if m == 0.0 {
-        return 0.0;
-    }
-
-    let mut q = 0.0;
-    for node in graph.node_identifiers() {
-        let ci = communities[&node];
-        let ki = degree[&node];
-        for edge in graph.edges(node) {
-            let target = edge.target();
-            let cj = communities[&target];
-            if ci == cj {
-                let a_ij: f64 = f64::from(*edge.weight());
-                let kj = degree[&target];
-                q += a_ij - resolution * (ki * kj) / (2.0 * m);
-            }
-        }
-    }
-
-    q / (2.0 * m)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
 
     use petgraph::graph::UnGraph;
 
-    use super::{louvain_communities, modularity};
+    use super::louvain_communities;
+    use crate::community::modularity::modularity;
     use crate::dictmap::{DictMap, InitWithHasher};
 
     #[test]
@@ -587,7 +533,7 @@ mod tests {
         communities.insert(c, 1);
         communities.insert(d, 1);
 
-        let q = modularity(&graph, &communities, None);
+        let q = modularity(&graph, &communities, None).unwrap();
         assert!(q > 0.0);
     }
 

@@ -23,6 +23,7 @@ use std::collections::BinaryHeap;
 
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 
+use crate::community::modularity::modularity_from_partition;
 use crate::dictmap::{DictMap, InitWithHasher};
 
 /// Wrapper for f64 that implements Ord for use in BinaryHeap (min-heap via Reverse).
@@ -210,30 +211,24 @@ where
         return result;
     }
 
+    // Build edge list once for modularity computation
+    let edges: Vec<(usize, usize, f64)> = (0..n)
+        .flat_map(|i| {
+            graph.edges(nodes[i]).map(move |edge| {
+                (
+                    i,
+                    graph.to_index(edge.target()),
+                    f64::from(*edge.weight()),
+                )
+            })
+        })
+        .collect();
+
     let mut best_mod = f64::NEG_INFINITY;
     let mut best_labels = partitions.last().cloned().unwrap_or_else(|| vec![0; n]);
 
     for labels in &partitions {
-        // Compute modularity for this partition
-        let mut sum_deg: Vec<f64> = vec![0.0; n]; // max possible community count
-        for (node_idx, &comm) in labels.iter().enumerate() {
-            sum_deg[comm as usize] += degree[node_idx];
-        }
-        let expected: f64 = sum_deg.iter().map(|d| d * d).sum::<f64>() / (2.0 * two_m);
-        // Count intra-community edge weight
-        let mut actual = 0.0;
-        for i in 0..n {
-            for edge in graph.edges(nodes[i]) {
-                let j = graph.to_index(edge.target());
-                let ci = labels[i];
-                let cj = labels[j];
-                if ci == cj {
-                    actual += f64::from(*edge.weight());
-                }
-            }
-        }
-        actual /= 2.0; // each undirected edge counted twice
-        let q = (actual - expected) / two_m * 2.0; // Q = (actual - expected) / m
+        let q = modularity_from_partition(labels, &degree, two_m, &edges, 1.0);
         if q > best_mod {
             best_mod = q;
             best_labels = labels.clone();
