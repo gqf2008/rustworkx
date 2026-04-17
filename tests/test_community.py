@@ -1253,3 +1253,112 @@ class TestDiGraphWalktrap(unittest.TestCase):
         self.assertEqual(len(short), 4)
         self.assertEqual(len(long), 4)
 
+
+class TestGraphModularity(unittest.TestCase):
+    def test_two_communities(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+
+        # Perfect community partition should have positive modularity
+        communities = {a: 0, b: 0, c: 0, d: 1, e: 1, f: 1}
+        q = rustworkx.graph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+
+    def test_single_community(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+
+        # Single community should still have positive modularity
+        communities = {a: 0, b: 0, c: 0, d: 0, e: 0, f: 0}
+        q = rustworkx.graph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+
+    def test_empty_graph(self):
+        graph = rustworkx.PyGraph()
+        communities = {}
+        q = rustworkx.graph_modularity(graph, communities)
+        self.assertEqual(q, 0.0)
+
+    def test_resolution_parameter(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(a, c, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(d, f, 1.0)
+
+        communities = {a: 0, b: 0, c: 0, d: 1, e: 1, f: 1}
+        q_default = rustworkx.graph_modularity(graph, communities)
+        q_hi_res = rustworkx.graph_modularity(graph, communities, resolution=2.0)
+        q_lo_res = rustworkx.graph_modularity(graph, communities, resolution=0.5)
+        # Higher resolution -> lower modularity for same partition
+        self.assertLess(q_hi_res, q_default)
+        self.assertGreater(q_lo_res, q_default)
+
+    def test_weighted_graph(self):
+        graph = rustworkx.PyGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        graph.add_edge(a, b, 10.0)
+        graph.add_edge(b, c, 10.0)
+        graph.add_edge(a, c, 10.0)
+        graph.add_edge(d, e, 10.0)
+        graph.add_edge(e, f, 10.0)
+        graph.add_edge(d, f, 10.0)
+        graph.add_edge(c, d, 0.1)
+
+        communities = {a: 0, b: 0, c: 0, d: 1, e: 1, f: 1}
+        q = rustworkx.graph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+
+
+class TestDiGraphModularity(unittest.TestCase):
+    def test_two_communities(self):
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+        graph.add_edge(c, a, 1.0)
+        graph.add_edge(d, e, 1.0)
+        graph.add_edge(e, f, 1.0)
+        graph.add_edge(f, d, 1.0)
+
+        communities = {a: 0, b: 0, c: 0, d: 1, e: 1, f: 1}
+        q = rustworkx.digraph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+
+    def test_empty_graph(self):
+        graph = rustworkx.PyDiGraph()
+        communities = {}
+        q = rustworkx.digraph_modularity(graph, communities)
+        self.assertEqual(q, 0.0)
+
+    def test_path_graph(self):
+        graph = rustworkx.PyDiGraph()
+        a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+        graph.add_edge(a, b, 1.0)
+        graph.add_edge(b, c, 1.0)
+
+        # All in same community
+        communities = {a: 0, b: 0, c: 0}
+        q = rustworkx.digraph_modularity(graph, communities)
+        self.assertGreater(q, 0.0)
+

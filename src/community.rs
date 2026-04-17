@@ -958,7 +958,7 @@ pub fn digraph_walktrap_communities(
 ///     graph.add_edge(d, f, 1.0)
 ///
 ///     communities = {a: 0, b: 0, c: 0, d: 1, e: 1, f: 1}
-///     q = rx.modularity(graph, communities)
+///     q = rx.graph_modularity(graph, communities)
 ///     print(f"Modularity: {q:.4f}")
 ///
 #[pyfunction]
