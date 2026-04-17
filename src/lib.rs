@@ -619,6 +619,8 @@ fn rustworkx(py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(digraph_infomap_communities))?;
     m.add_wrapped(wrap_pyfunction!(graph_walktrap_communities))?;
     m.add_wrapped(wrap_pyfunction!(digraph_walktrap_communities))?;
+    m.add_wrapped(wrap_pyfunction!(graph_modularity))?;
+    m.add_wrapped(wrap_pyfunction!(digraph_modularity))?;
     m.add_wrapped(wrap_pyfunction!(graph_line_graph))?;
     m.add_wrapped(wrap_pyfunction!(graph_tensor_product))?;
     m.add_wrapped(wrap_pyfunction!(digraph_tensor_product))?;

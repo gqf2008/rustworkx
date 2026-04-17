@@ -348,6 +348,24 @@ def digraph_walktrap_communities(
     seed: int | None = ...,
 ) -> dict[int, int]: ...
 
+def graph_modularity(
+    graph: PyGraph,
+    communities: dict[int, int],
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    resolution: float | None = ...,
+) -> float: ...
+
+def digraph_modularity(
+    graph: PyDiGraph,
+    communities: dict[int, int],
+    /,
+    weight_fn: Callable[[Any], float] | None = ...,
+    default_weight: float = ...,
+    resolution: float | None = ...,
+) -> float: ...
+
 # Connectivity
 
 def connected_components(graph: PyGraph, /) -> list[set[int]]: ...

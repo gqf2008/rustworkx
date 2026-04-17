@@ -249,7 +249,7 @@ fn compute_stationary_distribution(
             *v = 0.0;
         }
 
-        // Distribute probability mass
+        // Distribute probability mass via random walk transitions
         let teleport_share = teleport / n as f64;
         let one_minus_t = 1.0 - teleport;
         for i in 0..n {
@@ -260,10 +260,11 @@ fn compute_stationary_distribution(
                     p_new[j] += scale * w / out_weight[i];
                 }
             }
-            // Teleport distributes evenly to all nodes
-            for v in p_new.iter_mut().take(n) {
-                *v += pi * teleport_share;
-            }
+        }
+        // Teleport: distribute uniformly from all nodes (O(n) instead of O(n²))
+        let total_teleport: f64 = p.iter().sum::<f64>() * teleport_share;
+        for v in p_new.iter_mut().take(n) {
+            *v += total_teleport;
         }
 
         // Normalize

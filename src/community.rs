@@ -23,6 +23,7 @@ use rustworkx_core::community::label_propagation as core_label_propagation;
 use rustworkx_core::community::leiden_communities as core_leiden;
 use rustworkx_core::community::louvain_communities as core_louvain;
 use rustworkx_core::community::walktrap_communities as core_walktrap;
+use rustworkx_core::dictmap::{DictMap, InitWithHasher};
 
 use crate::{digraph, graph};
 
@@ -925,4 +926,92 @@ pub fn digraph_walktrap_communities(
         out_dict.set_item(graph.graph.to_index(node), label)?;
     }
     Ok(out_dict.into())
+}
+
+/// Compute the modularity of a partition.
+///
+/// Modularity is a measure of the quality of a community partition.
+/// It compares the density of edges within communities to the expected
+/// density if edges were distributed randomly.
+///
+/// :param graph: The input graph (PyGraph or PyDiGraph) to analyze.
+/// :param communities: A dictionary mapping node indices to community labels.
+/// :param resolution: Resolution parameter (gamma). Values > 1 produce more
+///     communities, values < 1 produce fewer. Default: 1.0.
+///
+/// :returns: The modularity score as a float. Higher values indicate better
+///     community structure. The maximum possible value is 1.0.
+/// :rtype: float
+///
+/// .. jupyter-execute::
+///
+///     import rustworkx as rx
+///
+///     graph = rx.PyGraph()
+///     a, b, c = graph.add_node(0), graph.add_node(1), graph.add_node(2)
+///     d, e, f = graph.add_node(3), graph.add_node(4), graph.add_node(5)
+///     graph.add_edge(a, b, 1.0)
+///     graph.add_edge(b, c, 1.0)
+///     graph.add_edge(a, c, 1.0)
+///     graph.add_edge(d, e, 1.0)
+///     graph.add_edge(e, f, 1.0)
+///     graph.add_edge(d, f, 1.0)
+///
+///     communities = {a: 0, b: 0, c: 0, d: 1, e: 1, f: 1}
+///     q = rx.modularity(graph, communities)
+///     print(f"Modularity: {q:.4f}")
+///
+#[pyfunction]
+#[pyo3(signature = (graph, communities, /, weight_fn=None, default_weight=1.0, resolution=None))]
+pub fn graph_modularity(
+    py: Python,
+    graph: &graph::PyGraph,
+    communities: &Bound<'_, PyDict>,
+    weight_fn: Option<Py<PyAny>>,
+    default_weight: f64,
+    resolution: Option<f64>,
+) -> PyResult<f64> {
+    let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
+    let mut comm_map: DictMap<NodeIndex, u32> = DictMap::new();
+    for (key, value) in communities {
+        let node_idx = key.extract::<usize>()?;
+        let label = value.extract::<u32>()?;
+        comm_map.insert(NodeIndex::new(node_idx), label);
+    }
+    let result = rustworkx_core::community::modularity(&weighted_graph, &comm_map, resolution);
+    Ok(result)
+}
+
+/// Compute the modularity of a partition for a directed graph.
+///
+/// :param graph: The input graph (PyDiGraph) to analyze.
+/// :param communities: A dictionary mapping node indices to community labels.
+/// :param weight_fn: Optional callable to extract edge weights. Takes an edge
+///     data object and returns a float. If not provided, uses default_weight.
+/// :param default_weight: Default edge weight used when weight_fn is not
+///     provided. Default: 1.0.
+/// :param resolution: Resolution parameter (gamma). Values > 1 produce more
+///     communities, values < 1 produce fewer. Default: 1.0.
+///
+/// :returns: The modularity score as a float.
+/// :rtype: float
+#[pyfunction]
+#[pyo3(signature = (graph, communities, /, weight_fn=None, default_weight=1.0, resolution=None))]
+pub fn digraph_modularity(
+    py: Python,
+    graph: &digraph::PyDiGraph,
+    communities: &Bound<'_, PyDict>,
+    weight_fn: Option<Py<PyAny>>,
+    default_weight: f64,
+    resolution: Option<f64>,
+) -> PyResult<f64> {
+    let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
+    let mut comm_map: DictMap<NodeIndex, u32> = DictMap::new();
+    for (key, value) in communities {
+        let node_idx = key.extract::<usize>()?;
+        let label = value.extract::<u32>()?;
+        comm_map.insert(NodeIndex::new(node_idx), label);
+    }
+    let result = rustworkx_core::community::modularity(&weighted_graph, &comm_map, resolution);
+    Ok(result)
 }

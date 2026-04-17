@@ -131,10 +131,7 @@ where
         return result;
     }
 
-    // Initialize: each node in its own community
-    let mut node_to_community: Vec<u32> = (0..n).map(|i| i as u32).collect();
-
-    // Compute node degrees (sum of edge weights)
+    // Compute node degrees (sum of edge weights, excluding self-loops)
     let mut node_degree: Vec<f64> = vec![0.0; n];
     for i in 0..n {
         for &(j, w) in &adj[i] {
@@ -144,24 +141,66 @@ where
         }
     }
 
-    // Run Louvain algorithm
-    louvain_pass(
-        &mut node_to_community,
-        &adj,
-        &node_degree,
-        m,
-        resolution,
-        max_levels,
-        &mut seed,
-    );
+    // Track mapping from original node to current aggregated-layer node.
+    // Initially each original node is its own layer-0 node.
+    let mut orig_to_layer: Vec<usize> = (0..n).collect();
 
-    // Normalize labels to compact integers starting from 0
+    // Current graph data (starts as the original graph)
+    let mut current_adj = adj;
+    let mut current_degree = node_degree;
+    let mut current_m = m;
+    let mut current_n = n;
+
+    for _level in 0..max_levels {
+        // Phase 1: Local moving on the current graph
+        let mut layer_comm: Vec<u32> = (0..current_n).map(|i| i as u32).collect();
+        louvain_pass(
+            &mut layer_comm,
+            &current_adj,
+            &current_degree,
+            current_m,
+            resolution,
+            100,
+            &mut seed,
+        );
+
+        // Check if any node moved from its initial singleton community
+        let improved = layer_comm.iter().enumerate().any(|(i, &c)| c != i as u32);
+
+        if !improved {
+            break;
+        }
+
+        // Normalize community labels to a compact 0..k range for aggregation
+        let (normalized_comm, _k) = normalize_communities(&layer_comm);
+
+        // Map original nodes through this layer: compact community id becomes
+        // the node index in the next aggregated graph.
+        for i in 0..n {
+            let comm = layer_comm[orig_to_layer[i]] as usize;
+            orig_to_layer[i] = normalized_comm[comm] as usize;
+        }
+
+        // Phase 2: Aggregate communities into supernodes
+        let next = aggregate_graph(&normalized_comm, &current_adj, current_n);
+        if next.n == current_n {
+            break; // No further aggregation possible
+        }
+
+        current_adj = next.adj;
+        current_degree = next.degree;
+        current_m = next.m;
+        current_n = next.n;
+    }
+
+    // orig_to_layer now holds the final community for each original node.
+    // Normalize to compact integers starting from 0.
     let mut label_map: HashMap<u32, u32> = HashMap::new();
     let mut next_label: u32 = 0;
 
     let mut result = DictMap::with_capacity(n);
     for (i, &node) in nodes.iter().enumerate() {
-        let raw_label = node_to_community[i];
+        let raw_label = orig_to_layer[i] as u32;
         let compact_label = label_map.entry(raw_label).or_insert_with(|| {
             let label = next_label;
             next_label += 1;
@@ -170,6 +209,73 @@ where
         result.insert(node, *compact_label);
     }
     result
+}
+
+/// Normalize community labels to a compact 0..k range.
+fn normalize_communities(comm: &[u32]) -> (Vec<u32>, usize) {
+    let mut label_map: HashMap<u32, u32> = HashMap::new();
+    let mut next_label: u32 = 0;
+    let mut normalized = Vec::with_capacity(comm.len());
+    for &c in comm {
+        let label = *label_map.entry(c).or_insert_with(|| {
+            let l = next_label;
+            next_label += 1;
+            l
+        });
+        normalized.push(label);
+    }
+    (normalized, next_label as usize)
+}
+
+/// Aggregate a graph by contracting each community into a single supernode.
+struct AggregatedGraph {
+    adj: Vec<Vec<(usize, f64)>>,
+    degree: Vec<f64>,
+    m: f64,
+    n: usize,
+}
+
+fn aggregate_graph(
+    community: &[u32],
+    adj: &[Vec<(usize, f64)>],
+    n: usize,
+) -> AggregatedGraph {
+    let k = community.iter().copied().max().map(|c| c as usize + 1).unwrap_or(0);
+
+    // Merge parallel edges using HashMap for O(deg) per node
+    let mut temp_adj: Vec<HashMap<usize, f64>> = vec![HashMap::new(); k];
+    let mut degree: Vec<f64> = vec![0.0; k];
+
+    for i in 0..n {
+        let ci = community[i] as usize;
+        for &(j, w) in &adj[i] {
+            let cj = community[j] as usize;
+            *temp_adj[ci].entry(cj).or_insert(0.0) += w;
+            if ci != cj {
+                degree[ci] += w;
+            }
+        }
+    }
+
+    let mut new_adj: Vec<Vec<(usize, f64)>> = Vec::with_capacity(k);
+    for hm in temp_adj {
+        new_adj.push(hm.into_iter().collect());
+    }
+
+    let mut total_weight = 0.0;
+    for ci in 0..k {
+        for &(_, w) in &new_adj[ci] {
+            total_weight += w;
+        }
+    }
+    let m = total_weight / 2.0;
+
+    AggregatedGraph {
+        adj: new_adj,
+        degree,
+        m,
+        n: k,
+    }
 }
 
 fn louvain_pass(
@@ -226,12 +332,10 @@ fn louvain_pass(
             *k_in.entry(ci).or_insert(0.0) -= ki_in + ki_self;
             *k_tot.entry(ci).or_insert(0.0) -= ki;
 
-            // Gather neighboring communities
+            // Gather neighboring communities (include self-loop weight so
+            // the node's current community is evaluated with its full attraction)
             let mut neighbor_comm: HashMap<u32, f64> = HashMap::new();
             for &(j, w) in &adj[i] {
-                if j == i {
-                    continue;
-                }
                 *neighbor_comm.entry(node_to_community[j]).or_insert(0.0) += w;
             }
 

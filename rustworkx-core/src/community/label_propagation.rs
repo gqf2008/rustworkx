@@ -40,7 +40,7 @@ use crate::dictmap::{DictMap, InitWithHasher};
 ///
 /// # Returns
 ///
-/// A `DictMap` mapping node index to community label (u64). Nodes in the same
+/// A `DictMap` mapping node index to community label (u32). Nodes in the same
 /// community share the same label.
 ///
 /// # Example
@@ -82,7 +82,7 @@ pub fn label_propagation<G>(
     graph: G,
     max_iterations: usize,
     seed: Option<u64>,
-) -> DictMap<G::NodeId, u64>
+) -> DictMap<G::NodeId, u32>
 where
     G: NodeIndexable + IntoNodeIdentifiers + IntoNeighbors + NodeCount + Send + Sync,
     G::NodeId: std::cmp::Eq + std::hash::Hash + Copy + Send + Sync,
@@ -106,7 +106,7 @@ where
     let n = nodes.len();
 
     // Initialize: each node gets its own unique label
-    let mut labels: Vec<u64> = (0..n as u64).collect();
+    let mut labels: Vec<u32> = (0..n as u32).collect();
 
     // Build adjacency list using node indices (0..n)
     let adj: Vec<Vec<usize>> = (0..n)
@@ -137,7 +137,7 @@ where
             }
 
             // Count label frequencies among neighbors
-            let mut label_counts: HashMap<u64, usize> = HashMap::new();
+            let mut label_counts: HashMap<u32, usize> = HashMap::new();
             for &neighbor_idx in neighbors {
                 *label_counts.entry(labels[neighbor_idx]).or_insert(0) += 1;
             }
@@ -146,7 +146,7 @@ where
             let max_freq = label_counts.values().copied().max().unwrap();
 
             // Collect all labels with maximum frequency (for tie-breaking)
-            let candidates: Vec<u64> = label_counts
+            let candidates: Vec<u32> = label_counts
                 .into_iter()
                 .filter(|(_, count)| *count == max_freq)
                 .map(|(label, _)| label)
@@ -172,8 +172,8 @@ where
     }
 
     // Convert back to NodeId keys with normalized community labels (0, 1, 2, ...)
-    let mut label_map: HashMap<u64, u64> = HashMap::new();
-    let mut next_label: u64 = 0;
+    let mut label_map: HashMap<u32, u32> = HashMap::new();
+    let mut next_label: u32 = 0;
 
     let mut result = DictMap::with_capacity(n);
     for (i, &node) in nodes.iter().enumerate() {
@@ -351,7 +351,7 @@ mod tests {
         // Compare partitions (not raw labels, since label values may differ
         // but the grouping should be identical)
         let make_partition = |communities: &DictMap<_, _>| {
-            let mut groups: HashbrownMap<u64, Vec<usize>> = HashbrownMap::new();
+            let mut groups: HashbrownMap<u32, Vec<usize>> = HashbrownMap::new();
             for (&node, &label) in communities {
                 groups.entry(label).or_default().push(graph.to_index(node));
             }
