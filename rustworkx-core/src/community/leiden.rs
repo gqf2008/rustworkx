@@ -25,7 +25,7 @@
 use hashbrown::{HashMap, HashSet};
 use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 
-use crate::community::random::fisher_yates_shuffle;
+use crate::community::random::{fisher_yates_shuffle, rand_f64, rand_u64};
 use crate::dictmap::{DictMap, InitWithHasher};
 
 /// Leiden community detection algorithm.
@@ -39,6 +39,9 @@ use crate::dictmap::{DictMap, InitWithHasher};
 /// * `max_iterations` - Maximum number of iterations. Default: 100.
 /// * `resolution` - Resolution parameter (gamma). Values > 1 produce more communities,
 ///   values < 1 produce fewer. Default: 1.0.
+/// * `randomness` - Controls exploration in the refinement phase. Values closer to 1.0
+///   allow more random moves; values closer to 0.0 make the algorithm greedier.
+///   Default: 0.001, matching the reference leidenalg implementation.
 /// * `seed` - Optional random seed for reproducibility.
 ///
 /// # Returns
@@ -71,7 +74,7 @@ use crate::dictmap::{DictMap, InitWithHasher};
 /// // Bridge
 /// graph.add_edge(c, d, 1.0);
 ///
-/// let communities = leiden_communities(&graph, None, None, None);
+/// let communities = leiden_communities(&graph, None, None, None, None);
 ///
 /// assert_eq!(communities[&a], communities[&b]);
 /// assert_eq!(communities[&b], communities[&c]);
@@ -83,6 +86,7 @@ pub fn leiden_communities<G>(
     graph: G,
     max_iterations: Option<usize>,
     resolution: Option<f64>,
+    randomness: Option<f64>,
     seed: Option<u64>,
 ) -> DictMap<G::NodeId, u32>
 where
@@ -93,6 +97,7 @@ where
 {
     let max_iterations = max_iterations.unwrap_or(100);
     let resolution = resolution.unwrap_or(1.0);
+    let randomness = randomness.unwrap_or(0.001).clamp(0.0, 1.0);
     let mut seed = seed.unwrap_or(42);
 
     let node_count = graph.node_count();
@@ -151,6 +156,7 @@ where
         &self_loop,
         m,
         resolution,
+        randomness,
         max_iterations,
         &mut seed,
     );
@@ -167,6 +173,7 @@ fn leiden_pass(
     self_loop: &[f64],
     m: f64,
     resolution: f64,
+    randomness: f64,
     max_iterations: usize,
     seed: &mut u64,
 ) {
@@ -174,7 +181,7 @@ fn leiden_pass(
     let two_m = 2.0 * m;
 
     for _iteration in 0..max_iterations {
-        // Phase 1: Local moving
+        // Phase 1: Local moving (same as Louvain — purely greedy)
         local_move(
             node_to_community,
             adj,
@@ -186,7 +193,9 @@ fn leiden_pass(
             seed,
         );
 
-        // Phase 2: Refinement — split communities into well-connected sub-communities
+        // Phase 2: Refinement — split communities into well-connected sub-communities.
+        // This is where Leiden differs from Louvain.  The `randomness` parameter
+        // controls how much the refinement phase explores the partition space.
         let mut refined: Vec<u32> = (0..(n as u32)).collect();
         refine_communities(
             &mut refined,
@@ -196,6 +205,7 @@ fn leiden_pass(
             m,
             two_m,
             resolution,
+            randomness,
             seed,
         );
 
@@ -314,6 +324,7 @@ fn refine_communities(
     m: f64,
     two_m: f64,
     resolution: f64,
+    randomness: f64,
     seed: &mut u64,
 ) {
     let n = adj.len();
@@ -442,26 +453,42 @@ fn refine_communities(
                         *neighbor_sub.entry(sub_comm[j]).or_insert(0.0) += w;
                     }
 
+                    // Collect all candidate sub-communities with positive modularity gain.
+                    let mut candidates: Vec<(u32, f64)> = Vec::new();
                     let mut best_sc = sci;
                     let mut best_dq = 0.0;
 
                     for (&sc, &w) in &neighbor_sub {
                         let ktot = *sub_k_tot.get(&sc).unwrap_or(&0.0);
                         let dq = w / m - resolution * ktot * ki / (two_m * m);
+                        if dq > 0.0 {
+                            candidates.push((sc, dq));
+                        }
                         if dq > best_dq {
                             best_dq = dq;
                             best_sc = sc;
                         }
                     }
 
-                    sub_comm[i] = best_sc;
-                    let new_ki_in =
-                        edge_weight_to_community_with_set(i, best_sc, adj, &sub_comm, &comp_set);
-                    let new_ki_self = self_loop[i];
-                    *sub_k_in.entry(best_sc).or_insert(0.0) += new_ki_in + new_ki_self;
-                    *sub_k_tot.entry(best_sc).or_insert(0.0) += ki;
+                    // Leiden randomness: with probability `randomness`, pick a random
+                    // positive-gain candidate instead of the greedy best.  This allows
+                    // the algorithm to explore the partition space rather than getting
+                    // stuck in a local optimum.  Reference: Traag et al. 2019.
+                    let chosen_sc = if !candidates.is_empty() && rand_f64(seed) < randomness {
+                        let idx = (rand_u64(seed) as usize) % candidates.len();
+                        candidates[idx].0
+                    } else {
+                        best_sc
+                    };
 
-                    if best_sc != sci {
+                    sub_comm[i] = chosen_sc;
+                    let new_ki_in =
+                        edge_weight_to_community_with_set(i, chosen_sc, adj, &sub_comm, &comp_set);
+                    let new_ki_self = self_loop[i];
+                    *sub_k_in.entry(chosen_sc).or_insert(0.0) += new_ki_in + new_ki_self;
+                    *sub_k_tot.entry(chosen_sc).or_insert(0.0) += ki;
+
+                    if chosen_sc != sci {
                         improved = true;
                     }
                 }
@@ -577,7 +604,7 @@ mod tests {
         graph.add_edge(d, f, 1.0);
         graph.add_edge(c, d, 1.0);
 
-        let communities = leiden_communities(&graph, None, None, Some(42));
+        let communities = leiden_communities(&graph, None, None, None, Some(42));
 
         assert_eq!(communities[&a], communities[&b]);
         assert_eq!(communities[&b], communities[&c]);
@@ -589,7 +616,7 @@ mod tests {
     #[test]
     fn test_empty_graph() {
         let graph = UnGraph::<i32, f64>::new_undirected();
-        let communities = leiden_communities(&graph, None, None, None);
+        let communities = leiden_communities(&graph, None, None, None, None);
         assert!(communities.is_empty());
     }
 
@@ -597,7 +624,7 @@ mod tests {
     fn test_single_node() {
         let mut graph = UnGraph::<i32, f64>::new_undirected();
         let a = graph.add_node(0);
-        let communities = leiden_communities(&graph, None, None, None);
+        let communities = leiden_communities(&graph, None, None, None, None);
         assert_eq!(communities.len(), 1);
         assert!(communities.contains_key(&a));
     }
@@ -608,7 +635,7 @@ mod tests {
         for _ in 0..5 {
             graph.add_node(0);
         }
-        let communities = leiden_communities(&graph, None, None, None);
+        let communities = leiden_communities(&graph, None, None, None, None);
         assert_eq!(communities.len(), 5);
         let labels: Vec<u32> = communities.values().copied().collect();
         let unique: HashSet<u32> = labels.into_iter().collect();
@@ -625,7 +652,7 @@ mod tests {
             }
         }
 
-        let communities = leiden_communities(&graph, None, None, Some(42));
+        let communities = leiden_communities(&graph, None, None, None, Some(42));
         let labels: Vec<u32> = communities.values().copied().collect();
         let unique: HashSet<u32> = labels.into_iter().collect();
         assert_eq!(unique.len(), 1);
@@ -649,7 +676,7 @@ mod tests {
         graph.add_edge(d, f, 10.0);
         graph.add_edge(c, d, 0.1);
 
-        let communities = leiden_communities(&graph, None, None, Some(42));
+        let communities = leiden_communities(&graph, None, None, None, Some(42));
 
         assert_eq!(communities[&a], communities[&b]);
         assert_eq!(communities[&b], communities[&c]);
@@ -665,7 +692,7 @@ mod tests {
         let b = graph.add_node(1);
         graph.add_edge(a, b, 1.0);
 
-        let communities = leiden_communities(&graph, None, None, None);
+        let communities = leiden_communities(&graph, None, None, None, None);
         assert_eq!(communities[&a], 0);
         assert_eq!(communities[&b], 0);
     }
@@ -680,7 +707,7 @@ mod tests {
         graph.add_edge(b, c, 1.0);
         graph.add_edge(a, a, 5.0); // self-loop
 
-        let communities = leiden_communities(&graph, None, None, Some(42));
+        let communities = leiden_communities(&graph, None, None, None, Some(42));
         // Should handle self-loops without panicking
         assert_eq!(communities.len(), 3);
     }
@@ -703,7 +730,7 @@ mod tests {
         graph.add_edge(e, f, 1.0);
         graph.add_edge(d, f, 1.0);
 
-        let communities = leiden_communities(&graph, None, None, Some(42));
+        let communities = leiden_communities(&graph, None, None, None, Some(42));
         // Each disconnected component should be its own community or split further
         assert_eq!(communities.len(), 6);
         // Within each triangle, nodes should share a label
@@ -724,7 +751,7 @@ mod tests {
         graph.add_edge(b, c, 1.0);
         graph.add_edge(c, d, -0.5); // negative edge
 
-        let communities = leiden_communities(&graph, None, None, Some(42));
+        let communities = leiden_communities(&graph, None, None, None, Some(42));
         // Should not panic; all nodes should be assigned
         assert_eq!(communities.len(), 4);
     }

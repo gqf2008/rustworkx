@@ -18,6 +18,13 @@ pub(crate) fn rand_u64(seed: &mut u64) -> u64 {
     *seed
 }
 
+/// Uniform random float in [0.0, 1.0) using the LCG above.
+pub(crate) fn rand_f64(seed: &mut u64) -> f64 {
+    // Use the upper 53 bits for maximum precision in [0,1)
+    let r = rand_u64(seed);
+    (r >> 11) as f64 / (1u64 << 53) as f64
+}
+
 /// In-place Fisher-Yates shuffle using the LCG above.
 pub(crate) fn fisher_yates_shuffle<T>(slice: &mut [T], seed: &mut u64) {
     let n = slice.len();

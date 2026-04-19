@@ -416,7 +416,7 @@ where
 ///     print(communities)
 ///
 #[pyfunction]
-#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_iterations=100, resolution=None, seed=None))]
+#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_iterations=100, resolution=None, randomness=None, seed=None))]
 pub fn graph_leiden_communities(
     py: Python,
     graph: &graph::PyGraph,
@@ -424,10 +424,11 @@ pub fn graph_leiden_communities(
     default_weight: f64,
     max_iterations: usize,
     resolution: Option<f64>,
+    randomness: Option<f64>,
     seed: Option<u64>,
 ) -> PyResult<Py<PyAny>> {
     let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
-    let result = core_leiden(&weighted_graph, Some(max_iterations), resolution, seed);
+    let result = core_leiden(&weighted_graph, Some(max_iterations), resolution, randomness, seed);
 
     let out_dict = PyDict::new(py);
     for (node, label) in result {
@@ -494,7 +495,7 @@ pub fn graph_leiden_communities(
 ///     print(communities)
 ///
 #[pyfunction]
-#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_iterations=100, resolution=None, seed=None))]
+#[pyo3(signature = (graph, /, weight_fn=None, default_weight=1.0, max_iterations=100, resolution=None, randomness=None, seed=None))]
 pub fn digraph_leiden_communities(
     py: Python,
     graph: &digraph::PyDiGraph,
@@ -502,10 +503,11 @@ pub fn digraph_leiden_communities(
     default_weight: f64,
     max_iterations: usize,
     resolution: Option<f64>,
+    randomness: Option<f64>,
     seed: Option<u64>,
 ) -> PyResult<Py<PyAny>> {
     let weighted_graph = build_f64_graph(py, &graph.graph, &weight_fn, default_weight)?;
-    let result = core_leiden(&weighted_graph, Some(max_iterations), resolution, seed);
+    let result = core_leiden(&weighted_graph, Some(max_iterations), resolution, randomness, seed);
 
     let out_dict = PyDict::new(py);
     for (node, label) in result {

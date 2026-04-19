@@ -272,6 +272,7 @@ def graph_leiden_communities(
     default_weight: float = ...,
     max_iterations: int = ...,
     resolution: float | None = ...,
+    randomness: float | None = ...,
     seed: int | None = ...,
 ) -> dict[int, int]: ...
 def digraph_leiden_communities(
@@ -281,6 +282,7 @@ def digraph_leiden_communities(
     default_weight: float = ...,
     max_iterations: int = ...,
     resolution: float | None = ...,
+    randomness: float | None = ...,
     seed: int | None = ...,
 ) -> dict[int, int]: ...
 
