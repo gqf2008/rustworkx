@@ -335,9 +335,9 @@ fn refine_communities(
         community_nodes.entry(c).or_default().push(i);
     }
 
-    let mut next_refined_id = n as u32;
+    let mut next_refined_id = 0u32;
 
-    // Reusable buffer for sub-community assignments — avoids O(n) allocation per component
+    // Reusable buffer for sub-community assignments
     let mut sub_comm: Vec<u32> = vec![0; n];
 
     for (_comm, nodes) in &community_nodes {
@@ -350,110 +350,182 @@ fn refine_communities(
             continue;
         }
 
-        // Build a HashSet for O(1) membership testing within this community
         let node_set: HashSet<usize> = nodes.iter().copied().collect();
 
-        // Find connected components within this community via BFS
-        let mut visited: HashSet<usize> = HashSet::new();
-        let mut components: Vec<Vec<usize>> = Vec::new();
+        // ── Phase 1: MergeNodesSubset ──────────────────────────────────────
+        // Start from a singleton partition within this community.
+        // Each node begins in its own sub-community.
+        for (idx, &node) in nodes.iter().enumerate() {
+            sub_comm[node] = idx as u32;
+        }
 
-        for &start in nodes {
-            if visited.contains(&start) {
-                continue;
-            }
-            let mut component: Vec<usize> = Vec::new();
-            let mut queue: Vec<usize> = vec![start];
-            visited.insert(start);
+        let mut sub_k_tot: HashMap<u32, f64> = HashMap::new();
+        let mut sub_k_in: HashMap<u32, f64> = HashMap::new();
 
-            while let Some(node) = queue.pop() {
-                component.push(node);
-                for &(nbr, _w) in &adj[node] {
-                    if node_set.contains(&nbr) && !visited.contains(&nbr) {
-                        visited.insert(nbr);
-                        queue.push(nbr);
+        for &node in nodes {
+            let sc = sub_comm[node];
+            let ki: f64 = adj[node]
+                .iter()
+                .filter(|&&(j, _)| node_set.contains(&j) && j != node)
+                .map(|&(_, w)| w)
+                .sum();
+            *sub_k_tot.entry(sc).or_insert(0.0) += ki;
+
+            let ki_in: f64 = adj[node]
+                .iter()
+                .filter(|&&(j, _)| j != node && node_set.contains(&j) && sub_comm[j] == sc)
+                .map(|&(_, w)| w)
+                .sum();
+            *sub_k_in.entry(sc).or_insert(0.0) += ki_in;
+        }
+
+        // Local moving within the community (MergeNodesSubset)
+        let mut order = nodes.clone();
+        for _pass in 0..nodes.len() {
+            fisher_yates_shuffle(&mut order, seed);
+            let mut improved = false;
+
+            for &i in &order {
+                let sci = sub_comm[i];
+                let ki: f64 = adj[i]
+                    .iter()
+                    .filter(|&&(j, _)| node_set.contains(&j) && j != i)
+                    .map(|&(_, w)| w)
+                    .sum();
+                if ki == 0.0 {
+                    continue;
+                }
+
+                // Remove from current sub-community
+                let ki_in =
+                    edge_weight_to_community_with_set(i, sci, adj, &sub_comm, &node_set);
+                let ki_self = self_loop[i];
+                *sub_k_in.entry(sci).or_insert(0.0) -= ki_in + ki_self;
+                *sub_k_tot.entry(sci).or_insert(0.0) -= ki;
+
+                // Gather neighboring sub-communities (restricted to this community)
+                let mut neighbor_sub: HashMap<u32, f64> = HashMap::new();
+                for &(j, w) in &adj[i] {
+                    if j == i || !node_set.contains(&j) {
+                        continue;
                     }
+                    *neighbor_sub.entry(sub_comm[j]).or_insert(0.0) += w;
+                }
+
+                let mut candidates: Vec<(u32, f64)> = Vec::new();
+                let mut best_sc = sci;
+                let mut best_dq = 0.0;
+
+                for (&sc, &w) in &neighbor_sub {
+                    let ktot = *sub_k_tot.get(&sc).unwrap_or(&0.0);
+                    let dq = w / m - resolution * ktot * ki / (two_m * m);
+                    if dq > 0.0 {
+                        candidates.push((sc, dq));
+                    }
+                    if dq > best_dq {
+                        best_dq = dq;
+                        best_sc = sc;
+                    }
+                }
+
+                let chosen_sc = if !candidates.is_empty() && rand_f64(seed) < randomness {
+                    let idx = (rand_u64(seed) as usize) % candidates.len();
+                    candidates[idx].0
+                } else {
+                    best_sc
+                };
+
+                sub_comm[i] = chosen_sc;
+                let new_ki_in =
+                    edge_weight_to_community_with_set(i, chosen_sc, adj, &sub_comm, &node_set);
+                let new_ki_self = self_loop[i];
+                *sub_k_in.entry(chosen_sc).or_insert(0.0) += new_ki_in + new_ki_self;
+                *sub_k_tot.entry(chosen_sc).or_insert(0.0) += ki;
+
+                if chosen_sc != sci {
+                    improved = true;
                 }
             }
 
-            components.push(component);
+            if !improved {
+                break;
+            }
         }
 
-        // For each connected component, run local moving to find sub-communities
-        for component in components {
-            if component.len() == 1 {
-                refined[component[0]] = next_refined_id;
-                next_refined_id += 1;
-                continue;
-            }
+        // ── Phase 2: MoveNodesSubset ───────────────────────────────────────
+        // Second pass only for nodes that are still singletons in the
+        // refined partition.  This is the key step that guarantees
+        // well-connected communities in the Leiden algorithm.
+        let mut sub_counts: HashMap<u32, usize> = HashMap::new();
+        for &node in nodes {
+            *sub_counts.entry(sub_comm[node]).or_insert(0) += 1;
+        }
+        let singletons: Vec<usize> = nodes
+            .iter()
+            .filter(|&&node| sub_counts.get(&sub_comm[node]) == Some(&1))
+            .copied()
+            .collect();
 
-            // Build HashSet for the component
-            let comp_set: HashSet<usize> = component.iter().copied().collect();
-
-            // Start: each node in its own sub-community
-            // Reuse sub_comm buffer — only reset entries for nodes in this component afterward
-            for (idx, &node) in component.iter().enumerate() {
-                sub_comm[node] = idx as u32;
-            }
-
-            let mut sub_k_tot: HashMap<u32, f64> = HashMap::new();
-            let mut sub_k_in: HashMap<u32, f64> = HashMap::new();
-
-            for &node in &component {
+        if !singletons.is_empty() {
+            // Recompute sub_k_tot and sub_k_in only for singletons and their
+            // immediate neighborhood to keep the stats correct.
+            for &node in &singletons {
                 let sc = sub_comm[node];
-
-                // Compute degree restricted to this component
                 let ki: f64 = adj[node]
                     .iter()
-                    .filter(|&&(j, _)| comp_set.contains(&j) && j != node)
+                    .filter(|&&(j, _)| node_set.contains(&j) && j != node)
                     .map(|&(_, w)| w)
                     .sum();
                 *sub_k_tot.entry(sc).or_insert(0.0) += ki;
 
-                // Compute intra-sub-community edge weight
                 let ki_in: f64 = adj[node]
                     .iter()
-                    .filter(|&&(j, _)| j != node && comp_set.contains(&j) && sub_comm[j] == sc)
+                    .filter(|&&(j, _)| j != node && node_set.contains(&j) && sub_comm[j] == sc)
                     .map(|&(_, w)| w)
                     .sum();
                 *sub_k_in.entry(sc).or_insert(0.0) += ki_in;
             }
 
-            // Local moving within this connected component
-            let mut order = component.clone();
-            for _pass in 0..component.len() {
-                fisher_yates_shuffle(&mut order, seed);
+            let mut singleton_order = singletons.clone();
+            for _pass in 0..singletons.len() {
+                fisher_yates_shuffle(&mut singleton_order, seed);
                 let mut improved = false;
 
-                for &i in &order {
+                for &i in &singleton_order {
                     let sci = sub_comm[i];
 
-                    // Compute degree restricted to this component
+                    // Only process if still a singleton
+                    let count = sub_counts.get(&sci).copied().unwrap_or(0);
+                    if count != 1 {
+                        continue;
+                    }
+
                     let ki: f64 = adj[i]
                         .iter()
-                        .filter(|&&(j, _)| comp_set.contains(&j) && j != i)
+                        .filter(|&&(j, _)| node_set.contains(&j) && j != i)
                         .map(|&(_, w)| w)
                         .sum();
                     if ki == 0.0 {
                         continue;
                     }
 
-                    // Remove from sub-community
+                    // Remove from singleton sub-community
                     let ki_in =
-                        edge_weight_to_community_with_set(i, sci, adj, &sub_comm, &comp_set);
+                        edge_weight_to_community_with_set(i, sci, adj, &sub_comm, &node_set);
                     let ki_self = self_loop[i];
                     *sub_k_in.entry(sci).or_insert(0.0) -= ki_in + ki_self;
                     *sub_k_tot.entry(sci).or_insert(0.0) -= ki;
+                    *sub_counts.entry(sci).or_insert(1) -= 1;
 
-                    // Find neighboring sub-communities
+                    // Gather neighboring sub-communities
                     let mut neighbor_sub: HashMap<u32, f64> = HashMap::new();
                     for &(j, w) in &adj[i] {
-                        if j == i || !comp_set.contains(&j) {
+                        if j == i || !node_set.contains(&j) {
                             continue;
                         }
                         *neighbor_sub.entry(sub_comm[j]).or_insert(0.0) += w;
                     }
 
-                    // Collect all candidate sub-communities with positive modularity gain.
                     let mut candidates: Vec<(u32, f64)> = Vec::new();
                     let mut best_sc = sci;
                     let mut best_dq = 0.0;
@@ -470,10 +542,6 @@ fn refine_communities(
                         }
                     }
 
-                    // Leiden randomness: with probability `randomness`, pick a random
-                    // positive-gain candidate instead of the greedy best.  This allows
-                    // the algorithm to explore the partition space rather than getting
-                    // stuck in a local optimum.  Reference: Traag et al. 2019.
                     let chosen_sc = if !candidates.is_empty() && rand_f64(seed) < randomness {
                         let idx = (rand_u64(seed) as usize) % candidates.len();
                         candidates[idx].0
@@ -482,8 +550,9 @@ fn refine_communities(
                     };
 
                     sub_comm[i] = chosen_sc;
+                    *sub_counts.entry(chosen_sc).or_insert(0) += 1;
                     let new_ki_in =
-                        edge_weight_to_community_with_set(i, chosen_sc, adj, &sub_comm, &comp_set);
+                        edge_weight_to_community_with_set(i, chosen_sc, adj, &sub_comm, &node_set);
                     let new_ki_self = self_loop[i];
                     *sub_k_in.entry(chosen_sc).or_insert(0.0) += new_ki_in + new_ki_self;
                     *sub_k_tot.entry(chosen_sc).or_insert(0.0) += ki;
@@ -497,23 +566,23 @@ fn refine_communities(
                     break;
                 }
             }
+        }
 
-            // Map sub-communities to refined IDs
-            let mut sub_to_refined: HashMap<u32, u32> = HashMap::new();
-            for &node in &component {
-                let sc = sub_comm[node];
-                let rid = sub_to_refined.entry(sc).or_insert_with(|| {
-                    let id = next_refined_id;
-                    next_refined_id += 1;
-                    id
-                });
-                refined[node] = *rid;
-            }
+        // Map sub-communities to refined IDs
+        let mut sub_to_refined: HashMap<u32, u32> = HashMap::new();
+        for &node in nodes {
+            let sc = sub_comm[node];
+            let rid = sub_to_refined.entry(sc).or_insert_with(|| {
+                let id = next_refined_id;
+                next_refined_id += 1;
+                id
+            });
+            refined[node] = *rid;
+        }
 
-            // Reset sub_comm entries for reuse by next component
-            for &node in &component {
-                sub_comm[node] = 0;
-            }
+        // Reset sub_comm entries for reuse
+        for &node in nodes {
+            sub_comm[node] = 0;
         }
     }
 }
