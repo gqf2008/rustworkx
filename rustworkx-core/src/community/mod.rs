@@ -21,6 +21,7 @@ mod greedy_modularity;
 mod infomap;
 mod label_propagation;
 mod leiden;
+mod leiden_ref;
 mod louvain;
 mod modularity;
 pub(crate) mod random;

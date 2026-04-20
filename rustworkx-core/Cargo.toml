@@ -35,3 +35,4 @@ features = ["rayon"]
 [dev-dependencies]
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
+
