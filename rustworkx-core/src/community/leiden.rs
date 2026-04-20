@@ -168,10 +168,21 @@ where
     )
     .expect("graspologic leiden should not fail");
 
-    // Map compact node ids back to petgraph NodeIds
+    // Map compact node ids back to petgraph NodeIds via the labeled network.
+    // LabeledNetworkBuilder assigns compact IDs in first-seen order from the
+    // edge list, which may differ from the petgraph node index order, so we
+    // must use the label→NodeId mapping rather than indexing into the nodes
+    // vector directly.
+    let mut label_to_nodeid: hashbrown::HashMap<String, G::NodeId> =
+        hashbrown::HashMap::with_capacity(node_count);
+    for (idx, node) in nodes.iter().enumerate() {
+        label_to_nodeid.insert(idx.to_string(), *node);
+    }
+
     let mut result = DictMap::with_capacity(node_count);
     for item in &final_clustering {
-        let node = nodes[item.node_id];
+        let label = labeled_network.label_for(item.node_id);
+        let node = label_to_nodeid[label.as_str()];
         result.insert(node, item.cluster as u32);
     }
     result

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "leiden-core",
+    "content": "Implement Leiden algorithm in rustworkx-core/src/community/leiden.rs",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "leiden-mod",
+    "content": "Export leiden from rustworkx-core community mod.rs",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "leiden-py",
+    "content": "Add PyO3 bindings in src/community.rs for graph and digraph",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "leiden-reg",
+    "content": "Register leiden functions in src/lib.rs",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "leiden-pyi",
+    "content": "Add type stubs in rustworkx/rustworkx.pyi",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "leiden-init",
+    "content": "Re-export in rustworkx/__init__.py",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "leiden-tests",
+    "content": "Add Python tests in tests/test_community.py",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "verify",
+    "content": "Build and run tests to verify implementation",
+    "status": "completed",
+    "priority": "high"
+  }
+]
