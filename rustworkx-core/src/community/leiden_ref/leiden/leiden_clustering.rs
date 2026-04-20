@@ -251,6 +251,7 @@ fn guarantee_clustering_sanity(
 mod tests {
     use super::*;
     use super::{LabeledNetwork, LabeledNetworkBuilder};
+    use crate::community::leiden_ref::network::Edge;
 
     // todo: this is common to LabeledNetwork and here, and probably should just be written in one place?
     fn edge_list() -> Vec<Edge> {
