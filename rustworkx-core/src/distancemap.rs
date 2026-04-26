@@ -55,8 +55,8 @@ impl<K: IndexType, V: Clone> DistanceMap<K, V> for Vec<Option<V>> {
 
 impl<K: Eq + Hash, V: Clone> DistanceMap<K, V> for DictMap<K, V> {
     #[inline]
-    fn build(_num_elements: usize) -> Self {
-        DictMap::<K, V>::default()
+    fn build(num_elements: usize) -> Self {
+        DictMap::<K, V>::with_capacity(num_elements)
     }
 
     #[inline]
@@ -72,8 +72,8 @@ impl<K: Eq + Hash, V: Clone> DistanceMap<K, V> for DictMap<K, V> {
 
 impl<K: Eq + Hash, V: Clone> DistanceMap<K, V> for HashMap<K, V> {
     #[inline]
-    fn build(_num_elements: usize) -> Self {
-        HashMap::<K, V>::default()
+    fn build(num_elements: usize) -> Self {
+        HashMap::<K, V>::with_capacity(num_elements)
     }
 
     #[inline]

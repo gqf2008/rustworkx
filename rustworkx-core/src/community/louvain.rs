@@ -213,7 +213,7 @@ where
 
 /// Normalize community labels to a compact 0..k range.
 fn normalize_communities(comm: &[u32]) -> (Vec<u32>, usize) {
-    let mut label_map: HashMap<u32, u32> = HashMap::new();
+    let mut label_map: HashMap<u32, u32> = HashMap::with_capacity(comm.len());
     let mut next_label: u32 = 0;
     let mut normalized = Vec::with_capacity(comm.len());
     for &c in comm {
@@ -300,14 +300,14 @@ fn louvain_pass(
     let two_m = 2.0 * m;
 
     // Compute community statistics: sum of degrees per community
-    let mut k_tot: HashMap<u32, f64> = HashMap::new();
+    let mut k_tot: HashMap<u32, f64> = HashMap::with_capacity(n);
     for i in 0..n {
         let c = node_to_community[i];
         *k_tot.entry(c).or_insert(0.0) += node_degree[i];
     }
 
     // Compute k_in: sum of edge weights within each community
-    let mut k_in: HashMap<u32, f64> = HashMap::new();
+    let mut k_in: HashMap<u32, f64> = HashMap::with_capacity(n);
     for i in 0..n {
         let ci = node_to_community[i];
         for &(j, w) in &adj[i] {
@@ -339,7 +339,7 @@ fn louvain_pass(
 
             // Gather neighboring communities (include self-loop weight so
             // the node's current community is evaluated with its full attraction)
-            let mut neighbor_comm: HashMap<u32, f64> = HashMap::new();
+            let mut neighbor_comm: HashMap<u32, f64> = HashMap::with_capacity(adj[i].len());
             for &(j, w) in &adj[i] {
                 *neighbor_comm.entry(node_to_community[j]).or_insert(0.0) += w;
             }

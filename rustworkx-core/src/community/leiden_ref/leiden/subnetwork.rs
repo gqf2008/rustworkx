@@ -61,7 +61,7 @@ impl SubnetworkClusteringGenerator {
 
         let mut cluster_weights: Vec<f64> = subnetwork.node_weights();
         let mut external_edge_weight_per_cluster: Vec<f64> = if use_modularity {
-            subnetwork.node_weights()
+            cluster_weights.clone()
         } else {
             subnetwork.total_edge_weight_per_node()
         };
@@ -150,9 +150,7 @@ impl SubnetworkClusteringGenerator {
     {
         self.node_processing_order.clear();
         self.neighboring_clusters.clear();
-        self.neighboring_cluster_edge_weights.clear();
         self.neighboring_cluster_edge_weights.resize(length, 0_f64);
-        self.singleton_clusters.clear();
         self.singleton_clusters.resize(length, true);
         self.summed_qvi_records.clear();
 

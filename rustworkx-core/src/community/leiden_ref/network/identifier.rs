@@ -46,22 +46,14 @@ where
         }
     }
 
-    pub fn identity_map(&self) -> Vec<T> {
-        self.new_to_original.clone()
-    }
-
     pub fn clear(&mut self) {
         self.new_to_original.clear();
         self.original_to_new.clear();
     }
 
     pub fn finish(&mut self) -> (HashMap<T, usize>, Vec<T>) {
-        let id_to_label: HashMap<T, usize> = self.original_to_new.clone();
-        let label_to_id: Vec<T> = self.new_to_original.clone();
-
-        self.original_to_new.clear();
-        self.new_to_original.clear();
-
+        let id_to_label = std::mem::take(&mut self.original_to_new);
+        let label_to_id = std::mem::take(&mut self.new_to_original);
         (id_to_label, label_to_id)
     }
 }

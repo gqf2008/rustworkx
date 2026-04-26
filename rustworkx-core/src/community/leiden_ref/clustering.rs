@@ -55,7 +55,7 @@ impl Clustering {
 
     /// Creates a clustering (with ZERO sanity checking) of the values stored in Clustering.
     /// Use responsibly.
-    pub fn as_defined(
+    pub(crate) fn as_defined(
         node_to_cluster_mapping: Vec<usize>,
         next_cluster_id: usize,
     ) -> Clustering {

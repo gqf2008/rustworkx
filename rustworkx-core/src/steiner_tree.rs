@@ -212,8 +212,9 @@ where
     G::NodeWeight: Clone,
     F: FnMut(G::EdgeRef) -> Result<f64, E>,
 {
+    let n = graph.node_count();
     let mut out_graph: StableGraph<G::NodeId, (f64, Vec<usize>), Undirected> =
-        StableGraph::with_capacity(graph.node_count(), graph.edge_count());
+        StableGraph::with_capacity(n, n * (n.saturating_sub(1)) / 2);
     let node_map: HashMap<usize, NodeIndex> = graph
         .node_references()
         .map(|node| {

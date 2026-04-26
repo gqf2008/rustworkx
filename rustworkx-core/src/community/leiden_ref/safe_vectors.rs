@@ -9,11 +9,6 @@ pub trait SafeVectors<T> {
         index: usize,
     ) -> bool;
 
-    fn is_valid_range(
-        &self,
-        index: usize,
-    ) -> bool;
-
     fn get_or_err(
         &self,
         index: usize,
@@ -27,13 +22,6 @@ impl<T: Clone> SafeVectors<T> for Vec<T> {
         index: usize,
     ) -> bool {
         index < self.len()
-    }
-
-    fn is_valid_range(
-        &self,
-        index: usize,
-    ) -> bool {
-        index <= self.len()
     }
 
     fn get_or_err(

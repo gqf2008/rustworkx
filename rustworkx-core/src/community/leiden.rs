@@ -23,7 +23,7 @@
 //! guaranteeing well-connected communities. Scientific Reports, 9(1), 5233.
 
 use hashbrown::HashSet;
-use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
+use petgraph::visit::{EdgeCount, EdgeRef, IntoEdges, IntoNodeIdentifiers, NodeCount, NodeIndexable};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -96,7 +96,7 @@ pub fn leiden_communities<G>(
     seed: Option<u64>,
 ) -> DictMap<G::NodeId, u32>
 where
-    G: NodeIndexable + IntoNodeIdentifiers + IntoEdges + NodeCount,
+    G: NodeIndexable + IntoNodeIdentifiers + IntoEdges + NodeCount + EdgeCount,
     G::NodeId: std::cmp::Eq + std::hash::Hash + Copy + Send + Sync,
     G::EdgeWeight: Copy,
     f64: From<G::EdgeWeight>,
@@ -108,23 +108,18 @@ where
 
     let nodes: Vec<G::NodeId> = graph.node_identifiers().collect();
 
-    // Convert petgraph to graspologic-native edge list.
-    // We also keep track of whether there are any negative weights;
-    // graspologic-native can loop infinitely with negative edge weights,
-    // so for tiny graphs with negative weights we fall back to a safe
-    // singleton partition.
     let mut has_negative = false;
-    let mut edges: Vec<(String, String, f64)> = Vec::new();
-    let mut seen_nodes: HashSet<String> = HashSet::new();
+    let mut edges: Vec<(usize, usize, f64)> = Vec::with_capacity(graph.edge_count());
+    let mut seen_nodes: HashSet<usize> = HashSet::with_capacity(node_count);
     for edge in graph.edge_references() {
-        let src = graph.to_index(edge.source()).to_string();
-        let tgt = graph.to_index(edge.target()).to_string();
+        let src = graph.to_index(edge.source());
+        let tgt = graph.to_index(edge.target());
         let mut weight: f64 = f64::from(*edge.weight());
         if weight < 0.0 {
             has_negative = true;
             weight = 0.0;
         }
-        edges.push((src.clone(), tgt.clone(), weight));
+        edges.push((src, tgt, weight));
         seen_nodes.insert(src);
         seen_nodes.insert(tgt);
     }
@@ -132,9 +127,8 @@ where
     // If there are isolated nodes (no edges), add them as zero-weight self-loops
     // so the builder registers them.  Self-loops with weight 0 are harmless.
     for (idx, _node) in nodes.iter().enumerate() {
-        let label = idx.to_string();
-        if !seen_nodes.contains(&label) {
-            edges.push((label.clone(), label, 0.0));
+        if !seen_nodes.contains(&idx) {
+            edges.push((idx, idx, 0.0));
         }
     }
 
@@ -148,8 +142,8 @@ where
         return result;
     }
 
-    let mut builder: LabeledNetworkBuilder<String> = LabeledNetworkBuilder::new();
-    let labeled_network: LabeledNetwork<String> = builder.build(edges.into_iter(), true);
+    let mut builder: LabeledNetworkBuilder<usize> = LabeledNetworkBuilder::new();
+    let labeled_network: LabeledNetwork<usize> = builder.build(edges.into_iter(), true);
     let compact_network: &CompactNetwork = labeled_network.compact();
 
     let initial_clustering = Clustering::as_self_clusters(compact_network.num_nodes());
@@ -173,16 +167,15 @@ where
     // edge list, which may differ from the petgraph node index order, so we
     // must use the label→NodeId mapping rather than indexing into the nodes
     // vector directly.
-    let mut label_to_nodeid: hashbrown::HashMap<String, G::NodeId> =
+    let mut label_to_nodeid: hashbrown::HashMap<usize, G::NodeId> =
         hashbrown::HashMap::with_capacity(node_count);
     for (idx, node) in nodes.iter().enumerate() {
-        label_to_nodeid.insert(idx.to_string(), *node);
+        label_to_nodeid.insert(idx, *node);
     }
 
     let mut result = DictMap::with_capacity(node_count);
     for item in &final_clustering {
-        let label = labeled_network.label_for(item.node_id);
-        let node = label_to_nodeid[label.as_str()];
+        let node = label_to_nodeid[labeled_network.label_for(item.node_id)];
         result.insert(node, item.cluster as u32);
     }
     result

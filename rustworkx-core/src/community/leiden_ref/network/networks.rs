@@ -1,6 +1,7 @@
 pub trait NetworkDetails {
     fn num_nodes(&self) -> usize;
 
+    #[allow(dead_code)]
     fn num_edges(&self) -> usize;
 
     fn total_node_weight(&self) -> f64;

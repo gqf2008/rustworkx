@@ -61,19 +61,10 @@ where
     T: Clone + Eq + Hash + PartialEq + std::cmp::PartialEq,
 {
     pub fn new() -> Self {
-        let builder: LabeledNetworkBuilder<T> = LabeledNetworkBuilder {
+        LabeledNetworkBuilder {
             node_to_neighbors: HashMap::new(),
             identifier: Identifier::new(),
-        };
-        builder
-    }
-
-    pub fn with_capacity(size: usize) -> Self {
-        let builder: LabeledNetworkBuilder<T> = LabeledNetworkBuilder {
-            node_to_neighbors: HashMap::with_capacity(size),
-            identifier: Identifier::new(),
-        };
-        builder
+        }
     }
 
     pub fn build<I>(
